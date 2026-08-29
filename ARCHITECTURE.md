@@ -17,6 +17,8 @@ NestJS API
    |
    +-- Incidents
    |
+   +-- Alerts
+   |
    +-- Demo
    |
    v
@@ -55,8 +57,10 @@ Historical baseline      Current window
                            v
                        Incident
                            |
-                           v
-                 AI / operator action
+              +------------+------------+
+              |                         |
+              v                         v
+      WhatsApp / Email alert   AI / operator action
 ```
 
 ## Module responsibilities
@@ -92,6 +96,16 @@ Responsible for:
 * resolve.
 
 It should not implement payment analytics.
+
+### alerts
+
+Responsible for:
+
+* sending notifications when a new degradation incident is created;
+* supporting WhatsApp and email channels;
+* keeping external delivery failures isolated from detection.
+
+It should not decide whether an incident exists.
 
 ### demo
 

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AlertsModule } from '../alerts/alerts.module.js';
 import { BaselinesModule } from '../baselines/baselines.module.js';
 import { IncidentsModule } from '../incidents/incidents.module.js';
 import { TransactionsModule } from '../transactions/transactions.module.js';
@@ -7,7 +8,7 @@ import { DetectionRepository } from './detection.repository.js';
 import { DetectionService } from './detection.service.js';
 
 @Module({
-  imports: [TransactionsModule, BaselinesModule, IncidentsModule],
+  imports: [TransactionsModule, BaselinesModule, IncidentsModule, AlertsModule],
   controllers: [DetectionController],
   providers: [DetectionRepository, DetectionService],
   exports: [DetectionService, DetectionRepository],
