@@ -6,6 +6,7 @@ import { IncidentsRepository } from '../incidents/incidents.repository.js';
 import { BaselinesService } from '../baselines/baselines.service.js';
 import type { CreateTransactionDto, PaymentStatusValue } from '../transactions/dto/create-transaction.dto.js';
 import type { InjectIncidentDto } from './dto/inject-incident.dto.js';
+import type { InjectPredictiveRiskDto } from './dto/inject-predictive-risk.dto.js';
 
 type Route = {
   merchant: string;
@@ -16,6 +17,13 @@ type Route = {
   currency: string;
   approval: number;
   weight: number;
+};
+
+type PredictiveProfile = {
+  approvalRate: number;
+  timeoutRate: number;
+  errorRate: number;
+  baseLatencyMs: number;
 };
 
 /** PagoTotal: 3 comercios, 3 proveedores, 3 paises. Datos inventados. */
@@ -161,6 +169,232 @@ export class DemoService {
     };
   }
 
+  async injectPredictiveRisk(
+    dto: InjectPredictiveRiskDto,
+  ) {
+    const random = seededRandom(
+      Date.now() % 100_000,
+    );
+
+    const now = new Date();
+
+    const base = ROUTES.find(
+      (route) =>
+        (!dto.provider ||
+          route.provider === dto.provider) &&
+        (!dto.country ||
+          route.country === dto.country) &&
+        (!dto.method ||
+          route.method === dto.method) &&
+        (!dto.merchant ||
+          route.merchant === dto.merchant) &&
+        (!dto.issuingBank ||
+          route.issuingBank === dto.issuingBank),
+    );
+
+    const route: Route = {
+      merchant:
+        dto.merchant ??
+        base?.merchant ??
+        'PagoTotal Retail',
+
+      provider:
+        dto.provider ??
+        base?.provider ??
+        'dLocal',
+
+      method:
+        dto.method ??
+        base?.method ??
+        'CARD',
+
+      country:
+        dto.country ??
+        base?.country ??
+        'CO',
+
+      issuingBank:
+        dto.issuingBank ??
+        base?.issuingBank ??
+        'Bancolombia',
+
+      currency:
+        base?.currency ??
+        'USD',
+
+      approval:
+        base?.approval ??
+        0.90,
+
+      weight: 1,
+    };
+
+    const perMinute =
+      dto.transactionsPerMinute ?? 12;
+
+    /*
+    * Tres buckets de 5 minutos.
+    *
+    * IMPORTANTE:
+    * No estamos creando una caída completa.
+    *
+    * Estamos creando señales precursoras:
+    *
+    * bucket 1:
+    * casi normal
+    *
+    * bucket 2:
+    * empieza deterioro
+    *
+    * bucket 3:
+    * riesgo significativo
+    *
+    * Esto coincide con la estructura temporal
+    * usada para entrenar el modelo.
+    */
+    const profiles: PredictiveProfile[] = [
+      {
+        approvalRate: 0.92,
+        timeoutRate: 0.01,
+        errorRate: 0.01,
+        baseLatencyMs: 450,
+      },
+
+      {
+        approvalRate: 0.88,
+        timeoutRate: 0.03,
+        errorRate: 0.03,
+        baseLatencyMs: 800,
+      },
+
+      {
+        approvalRate: 0.82,
+        timeoutRate: 0.07,
+        errorRate: 0.06,
+        baseLatencyMs: 1400,
+      },
+    ];
+
+    const rows: CreateTransactionDto[] = [];
+
+    for (
+      let bucketIndex = 0;
+      bucketIndex < profiles.length;
+      bucketIndex++
+    ) {
+      const profile =
+        profiles[bucketIndex];
+
+      /*
+      * Bucket 0 = hace 15–10 min
+      * Bucket 1 = hace 10–5 min
+      * Bucket 2 = hace 5–0 min
+      */
+      const bucketStartMinutesAgo =
+        14 - bucketIndex * 5;
+
+      for (
+        let minuteOffset = 0;
+        minuteOffset < 5;
+        minuteOffset++
+      ) {
+        const minutesAgo =
+          bucketStartMinutesAgo -
+          minuteOffset;
+
+        /*
+        * -30 segundos evita que una transacción
+        * termine accidentalmente en el futuro.
+        */
+        const at = new Date(
+          now.getTime() -
+            minutesAgo * 60_000 -
+            30_000,
+        );
+
+        for (
+          let transactionIndex = 0;
+          transactionIndex < perMinute;
+          transactionIndex++
+        ) {
+          /*
+          * Distribución dentro del minuto para no
+          * generar todas con exactamente el mismo
+          * timestamp.
+          */
+          const secondsOffset =
+            Math.floor(random() * 25);
+
+          const occurredAt = new Date(
+            at.getTime() +
+              secondsOffset * 1000,
+          );
+
+          rows.push(
+            makePredictiveTx(
+              route,
+              occurredAt,
+              profile,
+              random,
+            ),
+          );
+        }
+      }
+    }
+
+    const inserted =
+      await this.insertInChunks(rows);
+
+    this.logger.log(
+      `Riesgo predictivo inyectado en ${JSON.stringify(
+        route,
+      )}: ${inserted} transacciones`,
+    );
+
+    return {
+      injected: true,
+
+      type: 'PREDICTIVE_RISK',
+
+      transactions: inserted,
+
+      dimensions: {
+        merchant: route.merchant,
+        provider: route.provider,
+        method: route.method,
+        country: route.country,
+        issuingBank: route.issuingBank,
+      },
+
+      buckets: profiles.map(
+        (profile, index) => ({
+          bucket: index + 1,
+          minutes:
+            index === 0
+              ? '-15 to -10'
+              : index === 1
+                ? '-10 to -5'
+                : '-5 to now',
+
+          approvalRate:
+            profile.approvalRate,
+
+          timeoutRate:
+            profile.timeoutRate,
+
+          errorRate:
+            profile.errorRate,
+
+          baseLatencyMs:
+            profile.baseLatencyMs,
+        }),
+      ),
+
+      next:
+        'POST /api/predictions/segment',
+    };
+  }
+
   async reset() {
     await this.incidents.deleteAll();
     await this.transactionsRepo.deleteAll();
@@ -200,6 +434,178 @@ function makeTx(route: Route, occurredAt: Date, approval: number, random: () => 
     amountCents: Math.round((2_000 + Math.floor(random() * 48_000)) * scale),
     currency: route.currency,
     occurredAt: occurredAt.toISOString(),
+  };
+}
+
+function makePredictiveTx(
+  route: Route,
+  occurredAt: Date,
+  profile: PredictiveProfile,
+  random: () => number,
+): CreateTransactionDto {
+  const roll = random();
+
+  const approvalLimit =
+    profile.approvalRate;
+
+  const timeoutLimit =
+    approvalLimit +
+    profile.timeoutRate;
+
+  const errorLimit =
+    timeoutLimit +
+    profile.errorRate;
+
+  let status: PaymentStatusValue;
+
+  if (roll < approvalLimit) {
+    status = 'APPROVED';
+  } else if (roll < timeoutLimit) {
+    status = 'TIMEOUT';
+  } else if (roll < errorLimit) {
+    status = 'ERROR';
+  } else {
+    status = 'DECLINED';
+  }
+
+  let latencyMs =
+    profile.baseLatencyMs +
+    Math.floor(
+      random() *
+        profile.baseLatencyMs *
+        0.35,
+    );
+
+  if (status === 'TIMEOUT') {
+    latencyMs +=
+      2500 +
+      Math.floor(
+        random() * 1800,
+      );
+  }
+
+  if (status === 'ERROR') {
+    latencyMs +=
+      500 +
+      Math.floor(
+        random() * 700,
+      );
+  }
+
+  /*
+   * Taxonomía entregada por el mentor de Yuno.
+   *
+   * En este escenario predictivo queremos simular
+   * principalmente fallos accionables relacionados
+   * con proveedor/integración.
+   */
+  let declineCode:
+    string | undefined;
+
+  let errorType:
+    string | undefined;
+
+  if (status === 'DECLINED') {
+    const declineCodes = [
+      'DECLINED_BY_PROVIDER',
+      'INVALID_ISSUER',
+      'REQUESTS_EXCEEDED',
+    ];
+
+    declineCode =
+      declineCodes[
+        Math.floor(
+          random() *
+            declineCodes.length,
+        )
+      ];
+  }
+
+  if (status === 'ERROR') {
+    const integrationErrors = [
+      'TERMINAL_ERROR',
+      'INVALID_RESPONSE_FORMAT',
+      'UNKNOWN_ERROR',
+    ];
+
+    errorType =
+      integrationErrors[
+        Math.floor(
+          random() *
+            integrationErrors.length,
+        )
+      ];
+  }
+
+  if (status === 'TIMEOUT') {
+    /*
+     * La transacción sigue siendo TIMEOUT,
+     * pero usamos un failureReason del
+     * vocabulario real para representar
+     * degradación del proveedor.
+     */
+    const timeoutReasons = [
+      'ACQUIRE_CONTINGENCY',
+      'REQUESTS_EXCEEDED',
+    ];
+
+    errorType =
+      timeoutReasons[
+        Math.floor(
+          random() *
+            timeoutReasons.length,
+        )
+      ];
+  }
+
+  const scale =
+    route.currency === 'COP'
+      ? 400
+      : route.currency === 'MXN'
+        ? 20
+        : route.currency === 'BRL'
+          ? 5
+          : 1;
+
+  return {
+    merchant:
+      route.merchant,
+
+    provider:
+      route.provider,
+
+    method:
+      route.method,
+
+    country:
+      route.country,
+
+    issuingBank:
+      route.issuingBank,
+
+    status,
+
+    declineCode,
+
+    errorType,
+
+    latencyMs,
+
+    amountCents:
+      Math.round(
+        (
+          2_000 +
+          Math.floor(
+            random() * 48_000,
+          )
+        ) * scale,
+      ),
+
+    currency:
+      route.currency,
+
+    occurredAt:
+      occurredAt.toISOString(),
   };
 }
 
