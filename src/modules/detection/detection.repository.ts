@@ -48,4 +48,10 @@ export class DetectionRepository {
       quietRatio: total > 0 ? Number((noAnomaly / total).toFixed(4)) : 0,
     };
   }
+
+  findRun(id: string) {
+    return this.prisma.detectionRun.findUnique({
+      where: { id },
+    });
+  }
 }
