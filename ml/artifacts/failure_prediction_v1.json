@@ -1,0 +1,69 @@
+{
+  "modelType": "logistic_regression",
+  "modelVersion": "1.0.0",
+  "sklearnVersion": "1.9.0",
+  "target": "will_fail",
+  "predictionHorizonMinutes": 15,
+  "decisionThreshold": 0.15,
+  "features": [
+    "baseline_approval_rate",
+    "approval_drop",
+    "approval_slope",
+    "timeout_rate",
+    "timeout_slope",
+    "error_rate",
+    "p95_latency_ms",
+    "latency_slope"
+  ],
+  "scaler": {
+    "mean": [
+      0.9103465980196871,
+      0.018765518970840417,
+      -0.0016655891278752417,
+      0.02573727489964656,
+      0.00112417814582654,
+      0.029717540226756753,
+      605.600913824218,
+      13.583895885355544
+    ],
+    "scale": [
+      0.028790745122430326,
+      0.034255083816654,
+      0.018945181393204148,
+      0.025536059043401334,
+      0.011733946753108968,
+      0.022648096733904582,
+      311.7174438187561,
+      136.68291293477182
+    ]
+  },
+  "model": {
+    "intercept": -3.5685299881220915,
+    "coefficients": [
+      -0.09934611393386933,
+      0.36687358305338336,
+      -0.025005364636995053,
+      0.3005473787527828,
+      0.06454408377853103,
+      0.20164646210222992,
+      0.09194990496932987,
+      0.27488161417861945
+    ]
+  },
+  "metrics": {
+    "rocAuc": 0.8305713722962326,
+    "averagePrecision": 0.3685285057985926,
+    "brierScore": 0.04343391461105824,
+    "trueNegatives": 4748,
+    "falsePositives": 264,
+    "falseNegatives": 120,
+    "truePositives": 192
+  },
+  "training": {
+    "datasetRows": 26695,
+    "trainRows": 21371,
+    "testRows": 5324,
+    "positiveRate": 0.055403633639258286,
+    "randomSeed": 42
+  }
+}
