@@ -18,6 +18,7 @@ import { createGetIncidentHistoryTool } from './tools/get-incident-history.tool.
 import { createGetIncidentTool } from './tools/get-incident.tool.js';
 import { createGetTimeseriesTool } from './tools/get-timeseries.tool.js';
 import { createListActiveIncidentsTool } from './tools/list-active-incidents.tool.js';
+import { createClassifyResponseCodeTool } from './tools/classify-response-code.tool.js';
 import {
   enforceCanonicalIncidentImpact,
   getCanonicalIncidentImpact,
@@ -95,6 +96,7 @@ export class AgentService {
       createGetDeclineReasonDistributionTool(this.analytics, analysisAnchor),
       createGetTimeseriesTool(this.analytics, analysisAnchor),
       createListActiveIncidentsTool(this.incidents),
+      createClassifyResponseCodeTool(),
     ];
     const model = this.config.get<string>('OPENAI_MODEL')?.trim() || undefined;
     const agent = createPaymentsConciergeAgent(tools, model);
