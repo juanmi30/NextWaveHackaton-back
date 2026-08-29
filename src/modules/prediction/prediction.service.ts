@@ -8,7 +8,16 @@ import { resolve } from 'node:path';
 
 import { EvaluatePredictionDto } from './dto/evaluate-prediction.dto.js';
 
-type RiskLevel = 'LOW' | 'WATCH' | 'HIGH';
+import {
+  PredictionFeaturesService,
+  type ExtractedFeatures,
+} from './prediction-features.service.js';
+
+import type {
+  EvaluateSegmentDto,
+} from './dto/evaluate-segment.dto.js';
+
+export type RiskLevel = 'LOW' | 'WATCH' | 'HIGH';
 
 interface ModelArtifact {
   modelType: string;
@@ -29,23 +38,69 @@ interface ModelArtifact {
   };
 }
 
-interface Signal {
+export interface Signal {
   feature: string;
   value: number;
   contribution: number;
   effect: 'INCREASES_RISK' | 'DECREASES_RISK';
 }
 
+export interface PredictionResult {
+  model: {
+    type: string;
+    version: string;
+  };
+
+  predictionHorizonMinutes: number;
+
+  failureProbability: number;
+  failureProbabilityPercent: number;
+
+  decisionThreshold: number;
+
+  elevatedRisk: boolean;
+
+  riskLevel: RiskLevel;
+
+  signals: Signal[];
+}
+
+export interface SegmentPredictionResult {
+  status:
+    | 'PREDICTION'
+    | 'INSUFFICIENT_EVIDENCE';
+
+  segment: Record<
+    string,
+    string | undefined
+  >;
+
+  features:
+    | ExtractedFeatures['modelInput']
+    | null;
+
+  evidence:
+    ExtractedFeatures['evidence'];
+
+  prediction:
+    PredictionResult | null;
+}
+
 @Injectable()
 export class PredictionService {
   private readonly artifact: ModelArtifact;
 
-  constructor() {
+  constructor(
+    private readonly featuresService:
+      PredictionFeaturesService,
+  ) {
     this.artifact = this.loadModel();
     this.validateArtifact();
   }
 
-  evaluate(input: EvaluatePredictionDto) {
+  evaluate(
+    input: EvaluatePredictionDto,
+  ): PredictionResult {
     const values: Record<string, number> = {
       baseline_approval_rate: input.baselineApprovalRate,
       approval_drop: input.approvalDrop,
@@ -148,8 +203,56 @@ export class PredictionService {
     };
   }
 
+  async evaluateSegment(
+    input: EvaluateSegmentDto,
+  ): Promise<SegmentPredictionResult> {
+    const extracted =
+      await this.featuresService.extract(
+        input,
+      );
+
+    if (
+      !extracted.evidence
+        .sufficientEvidence
+    ) {
+      return {
+        status:
+          'INSUFFICIENT_EVIDENCE',
+
+        segment:
+          extracted.segment,
+
+        features: null,
+
+        evidence:
+          extracted.evidence,
+
+        prediction: null,
+      };
+    }
+
+    const prediction =
+      this.evaluate(
+        extracted.modelInput,
+      );
+
+    return {
+      status: 'PREDICTION',
+
+      segment:
+        extracted.segment,
+
+      features:
+        extracted.modelInput,
+
+      evidence:
+        extracted.evidence,
+
+      prediction,
+    };
+  }
+
   private sigmoid(value: number): number {
-    // Forma numéricamente estable.
     if (value >= 0) {
       return 1 / (1 + Math.exp(-value));
     }
@@ -190,12 +293,24 @@ export class PredictionService {
       );
     }
 
-    const content = readFileSync(
-      modelPath,
-      'utf-8',
-    );
+    try {
+      const content = readFileSync(
+        modelPath,
+        'utf-8',
+      );
 
-    return JSON.parse(content) as ModelArtifact;
+      return JSON.parse(
+        content,
+      ) as ModelArtifact;
+    } catch (error) {
+      throw new InternalServerErrorException(
+        `No fue posible cargar el modelo ML: ${
+          error instanceof Error
+            ? error.message
+            : 'error desconocido'
+        }`,
+      );
+    }
   }
 
   private validateArtifact(): void {
@@ -212,6 +327,29 @@ export class PredictionService {
     ) {
       throw new InternalServerErrorException(
         'El artefacto ML tiene dimensiones inconsistentes.',
+      );
+    }
+
+    if (
+      !Number.isFinite(model.intercept) ||
+      !Number.isFinite(
+        this.artifact.decisionThreshold,
+      )
+    ) {
+      throw new InternalServerErrorException(
+        'El artefacto ML contiene parámetros inválidos.',
+      );
+    }
+
+    const hasInvalidNumbers = [
+      ...scaler.mean,
+      ...scaler.scale,
+      ...model.coefficients,
+    ].some((value) => !Number.isFinite(value));
+
+    if (hasInvalidNumbers) {
+      throw new InternalServerErrorException(
+        'El artefacto ML contiene valores numéricos inválidos.',
       );
     }
   }
