@@ -11,6 +11,11 @@ export class IncidentsController {
     return this.incidents.findAll(query);
   }
 
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.incidents.findOne(id);
+  }
+
   @Patch(':id/acknowledge')
   acknowledge(@Param('id') id: string) {
     return this.incidents.acknowledge(id);

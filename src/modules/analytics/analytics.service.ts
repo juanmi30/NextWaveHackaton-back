@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { IncidentsService } from '../incidents/incidents.service.js';
 import type { AnalysisDimension, AnalyzeRiskDto } from './dto/analyze-risk.dto.js';
 
 type Tx = {
@@ -28,9 +29,32 @@ type WindowMetrics = {
   averageAmountCents: number;
 };
 
+type MetricsTx = Pick<Tx, 'status' | 'amountCents' | 'latencyMs'>;
+
 @Injectable()
 export class AnalyticsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly incidents: IncidentsService,
+  ) {}
+
+  async summary() {
+    const [transactions, incidents] = await Promise.all([
+      this.prisma.transaction.findMany({
+        select: { status: true, amountCents: true, latencyMs: true },
+      }),
+      this.incidents.countOpen(),
+    ]);
+    const metrics = this.metrics(transactions);
+
+    return {
+      transactionCount: metrics.total,
+      approvalRate: metrics.approvalRate,
+      failureRate: metrics.failureRate,
+      openIncidentCount: incidents.open,
+      highCriticalIncidentCount: incidents.highCritical,
+    };
+  }
 
   async analyze(dto: AnalyzeRiskDto) {
     const groupBy = dto.groupBy ?? 'route';
@@ -147,7 +171,7 @@ export class AnalyticsService {
     }
   }
 
-  private metrics(transactions: Tx[]): WindowMetrics {
+  private metrics(transactions: MetricsTx[]): WindowMetrics {
     const total = transactions.length;
     const approved = transactions.filter((tx) => tx.status === 'APPROVED').length;
     const declined = transactions.filter((tx) => tx.status === 'DECLINED').length;

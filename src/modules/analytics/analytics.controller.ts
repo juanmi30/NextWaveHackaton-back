@@ -6,6 +6,11 @@ import { AnalyzeRiskDto } from './dto/analyze-risk.dto.js';
 export class AnalyticsController {
   constructor(private readonly analytics: AnalyticsService) {}
 
+  @Get('summary')
+  summary() {
+    return this.analytics.summary();
+  }
+
   @Get('risk')
   analyze(@Query() query: AnalyzeRiskDto) {
     return this.analytics.analyze(query);
