@@ -14,6 +14,21 @@ export class IncidentsService {
     });
   }
 
+  async findOne(id: string) {
+    const incident = await this.prisma.incident.findUnique({ where: { id } });
+    if (!incident) throw new NotFoundException(`Incident ${id} not found`);
+    return incident;
+  }
+
+  async countOpen() {
+    const [open, highCritical] = await Promise.all([
+      this.prisma.incident.count({ where: { status: 'OPEN' } }),
+      this.prisma.incident.count({ where: { status: 'OPEN', severity: { gte: 3 } } }),
+    ]);
+
+    return { open, highCritical };
+  }
+
   async acknowledge(id: string) {
     await this.ensureExists(id);
     return this.prisma.incident.update({
