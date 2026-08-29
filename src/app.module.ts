@@ -11,6 +11,7 @@ import { IncidentsModule } from './modules/incidents/incidents.module.js';
 import { DetectionModule } from './modules/detection/detection.module.js';
 import { AnalyticsModule } from './modules/analytics/analytics.module.js';
 import { DemoModule } from './modules/demo/demo.module.js';
+import { AgentModule } from './modules/agent/agent.module.js';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { DemoModule } from './modules/demo/demo.module.js';
     DetectionModule,
     AnalyticsModule,
     DemoModule,
+    AgentModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],
