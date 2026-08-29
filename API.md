@@ -90,6 +90,7 @@ El listado incluye el diagnostico vigente con sus filas de evidencia.
 ```
 GET    /api/analytics/summary?windowMinutes=60
 GET    /api/analytics/breakdown?groupBy=provider&timeWindowMinutes=60
+GET    /api/analytics/decline-reasons?provider=&country=&timeWindowMinutes=60
 GET    /api/analytics/timeseries?minutes=120&bucketMinutes=5&provider=
 ```
 

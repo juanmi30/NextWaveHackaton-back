@@ -1,6 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { AnalyticsService } from './analytics.service.js';
 import { AnalyzeRiskDto } from './dto/analyze-risk.dto.js';
+import { DeclineReasonBreakdownDto } from './dto/decline-reason-breakdown.dto.js';
 
 @Controller('analytics')
 export class AnalyticsController {
@@ -14,6 +15,11 @@ export class AnalyticsController {
   @Get('breakdown')
   breakdown(@Query() query: AnalyzeRiskDto) {
     return this.analytics.breakdown(query);
+  }
+
+  @Get('decline-reasons')
+  declineReasons(@Query() query: DeclineReasonBreakdownDto) {
+    return this.analytics.declineReasonBreakdown(query);
   }
 
   @Get('timeseries')

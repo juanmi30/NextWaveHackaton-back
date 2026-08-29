@@ -11,6 +11,7 @@ import { IncidentsService } from '../incidents/incidents.service.js';
 import { createPaymentsConciergeAgent } from './agents/payments-concierge.agent.js';
 import { AgentDiagnosisSchema } from './schemas/agent-diagnosis.schema.js';
 import { createGetBreakdownTool } from './tools/get-breakdown.tool.js';
+import { createGetDeclineReasonDistributionTool } from './tools/get-decline-reason-distribution.tool.js';
 import { createGetIncidentHistoryTool } from './tools/get-incident-history.tool.js';
 import { createGetIncidentTool } from './tools/get-incident.tool.js';
 import { createGetTimeseriesTool } from './tools/get-timeseries.tool.js';
@@ -37,6 +38,7 @@ export class AgentService {
       createGetIncidentTool(this.incidents),
       createGetIncidentHistoryTool(this.incidents),
       createGetBreakdownTool(this.analytics),
+      createGetDeclineReasonDistributionTool(this.analytics),
       createGetTimeseriesTool(this.analytics),
       createListActiveIncidentsTool(this.incidents),
     ];

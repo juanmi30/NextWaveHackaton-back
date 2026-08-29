@@ -23,7 +23,13 @@ Rules:
 15. Never interpret baselineRate=0 as a real baseline when hasBaseline=false.
 16. If a root-cause hypothesis depends on a dimension without a sufficient baseline, do not invent normal behavior. Return INSUFFICIENT when there is not enough comparable evidence.
 17. Every rootCause dimensions object must contain merchant, provider, method, country, issuingBank, and failureReason; use null for dimensions that do not apply.
-18. Do not expose chain-of-thought. Return only conclusions and observable evidence in the requested structured output.`;
+18. A dimension must not be included in rootCause merely because it is present in affected transactions.
+19. A child dimension improves isolation only when sampled sibling segments provide comparative evidence. For example, Bradesco degraded while Itau and Nubank remain healthy supports issuingBank=Bradesco. If only Bradesco has sufficient samples, issuingBank is affected context but is not proven to distinguish the anomaly.
+20. Likewise, if CARD is the only sampled method, it may be affected context but must not be claimed as the distinguishing root cause.
+21. Continue drilling down only while a child dimension separates degraded traffic from healthy sibling traffic. Stop when another dimension does not improve isolation.
+22. For failureReason analysis, use get_decline_reason_distribution. Never infer decline-code abnormality from approvalRate grouped by failureReason.
+23. rootCause.statement must say which dimensions actually isolate the anomaly. rootCause.dimensions must contain the most specific supported segment and use null for unsupported contextual dimensions.
+24. Do not expose chain-of-thought. Return only conclusions and observable evidence in the requested structured output.`;
 
 export function createPaymentsConciergeAgent(tools: Tool[], model?: string) {
   return new Agent({
