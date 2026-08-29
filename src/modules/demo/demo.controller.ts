@@ -1,6 +1,7 @@
 import { Body, Controller, Post, Query } from '@nestjs/common';
 import { DemoService } from './demo.service.js';
 import { InjectIncidentDto } from './dto/inject-incident.dto.js';
+import { InjectPredictiveRiskDto } from './dto/inject-predictive-risk.dto.js';
 
 @Controller('demo')
 export class DemoController {
@@ -27,5 +28,14 @@ export class DemoController {
   @Post('reset')
   reset() {
     return this.demo.reset();
+  }
+
+  @Post('inject-predictive-risk')
+  injectPredictiveRisk(
+    @Body() dto: InjectPredictiveRiskDto,
+  ) {
+    return this.demo.injectPredictiveRisk(
+      dto,
+    );
   }
 }

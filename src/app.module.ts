@@ -13,6 +13,7 @@ import { AnalyticsModule } from './modules/analytics/analytics.module.js';
 import { DemoModule } from './modules/demo/demo.module.js';
 import { AgentModule } from './modules/agent/agent.module.js';
 import { GraphModule } from './modules/graph/graph.module.js';
+import { PredictionModule } from './modules/prediction/prediction.module.js';
 
 @Module({
   imports: [
@@ -26,7 +27,8 @@ import { GraphModule } from './modules/graph/graph.module.js';
     AnalyticsModule,
     DemoModule,
     AgentModule,
-    GraphModule
+    GraphModule,
+    PredictionModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],
