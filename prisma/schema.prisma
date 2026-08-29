@@ -1,0 +1,49 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PaymentStatus {
+  APPROVED
+  DECLINED
+  ERROR
+}
+
+model Transaction {
+  id           String        @id @default(cuid())
+  merchant     String
+  provider     String
+  method       String
+  country      String
+  issuingBank  String
+  status       PaymentStatus
+  declineCode  String?
+  amountCents  Int
+  currency     String        @default("USD")
+  occurredAt   DateTime      @default(now())
+
+  @@index([occurredAt])
+  @@index([provider, country, occurredAt])
+  @@index([merchant, issuingBank, occurredAt])
+}
+
+model Incident {
+  id             String   @id @default(cuid())
+  title          String
+  dimensions     Json
+  severity       Int      @default(0)
+  baselineRate   Float
+  observedRate   Float
+  estimatedLoss  Int      @default(0)
+  evidence       Json?
+  recommendation String?
+  detectedAt     DateTime @default(now())
+  resolvedAt     DateTime?
+
+  @@index([detectedAt])
+}

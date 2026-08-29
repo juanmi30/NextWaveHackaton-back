@@ -1,0 +1,19 @@
+# dependencies
+/node_modules
+
+# build
+/dist
+*.tsbuildinfo
+
+# prisma generated client (se regenera en cada build)
+/src/generated
+
+# env
+.env
+.env.local
+.env.*.local
+
+# logs / os
+*.log
+.DS_Store
+coverage/
