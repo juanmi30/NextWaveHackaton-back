@@ -105,12 +105,18 @@ POST   /api/fx/rates/seed
 ### Payments Diagnostic Concierge
 ```
 POST   /api/agent/incidents/:incidentId/analyze
+GET    /api/agent/incidents/:incidentId/analyze/stream
 ```
 
 Analiza un incidente existente con el OpenAI Agents SDK y devuelve un diagnostico
 JSON estructurado. Es read-only, requiere `OPENAI_API_KEY` y nunca ejecuta
 remediacion, rerouting ni cambios sobre el incidente. `OPENAI_MODEL` permite
 seleccionar un modelo; si se omite, el SDK utiliza su modelo predeterminado.
+
+El endpoint `stream` usa SSE (`text/event-stream`) y emite solamente actividad
+publica: `run_started`, `phase_changed`, `tool_started`, `tool_completed`,
+`diagnosis`, `run_completed` o `error`. No expone argumentos/resultados de tools,
+mensajes internos ni eventos raw del modelo.
 
 ## Guion de demo
 
