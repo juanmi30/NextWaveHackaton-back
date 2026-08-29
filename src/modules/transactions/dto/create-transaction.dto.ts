@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   IsArray,
   IsDateString,
   IsIn,
@@ -15,6 +16,10 @@ export const PAYMENT_STATUSES = ['APPROVED', 'DECLINED', 'ERROR', 'TIMEOUT'] as 
 export type PaymentStatusValue = (typeof PAYMENT_STATUSES)[number];
 
 export class CreateTransactionDto {
+  @IsOptional()
+  @IsString()
+  externalId?: string;
+
   @IsString()
   @IsNotEmpty()
   merchant: string;
@@ -68,6 +73,7 @@ export class CreateTransactionDto {
 
 export class BulkCreateTransactionsDto {
   @IsArray()
+  @ArrayMaxSize(5000)
   @ValidateNested({ each: true })
   @Type(() => CreateTransactionDto)
   transactions: CreateTransactionDto[];

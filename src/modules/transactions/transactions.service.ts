@@ -1,51 +1,28 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service.js';
+import { FxService } from '../fx/fx.service.js';
+import { TransactionsRepository } from './transactions.repository.js';
 import type {
   BulkCreateTransactionsDto,
   CreateTransactionDto,
 } from './dto/create-transaction.dto.js';
 import type { QueryTransactionsDto } from './dto/query-transactions.dto.js';
+import type { Prisma } from '../../generated/prisma/client.js';
 
 @Injectable()
 export class TransactionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly repository: TransactionsRepository,
+    private readonly fx: FxService,
+  ) {}
 
-  create(dto: CreateTransactionDto) {
-    return this.prisma.transaction.create({
-      data: {
-        merchant: dto.merchant,
-        provider: dto.provider,
-        method: dto.method,
-        country: dto.country,
-        issuingBank: dto.issuingBank,
-        status: dto.status,
-        declineCode: dto.declineCode,
-        errorType: dto.errorType,
-        latencyMs: dto.latencyMs,
-        amountCents: dto.amountCents,
-        currency: dto.currency ?? 'USD',
-        occurredAt: dto.occurredAt ? new Date(dto.occurredAt) : new Date(),
-      },
-    });
+  async create(dto: CreateTransactionDto) {
+    const row = await this.toRow(dto);
+    return this.repository.create(row as Prisma.TransactionCreateInput);
   }
 
   async createBulk(dto: BulkCreateTransactionsDto) {
-    const data = dto.transactions.map((tx) => ({
-      merchant: tx.merchant,
-      provider: tx.provider,
-      method: tx.method,
-      country: tx.country,
-      issuingBank: tx.issuingBank,
-      status: tx.status,
-      declineCode: tx.declineCode,
-      errorType: tx.errorType,
-      latencyMs: tx.latencyMs,
-      amountCents: tx.amountCents,
-      currency: tx.currency ?? 'USD',
-      occurredAt: tx.occurredAt ? new Date(tx.occurredAt) : new Date(),
-    }));
-
-    const result = await this.prisma.transaction.createMany({ data });
+    const rows = await Promise.all(dto.transactions.map((tx) => this.toRow(tx)));
+    const result = await this.repository.createMany(rows as Prisma.TransactionCreateManyInput[]);
     return { inserted: result.count };
   }
 
@@ -58,18 +35,66 @@ export class TransactionsService {
           }
         : undefined;
 
-    return this.prisma.transaction.findMany({
-      where: {
-        ...(query.merchant ? { merchant: query.merchant } : {}),
-        ...(query.provider ? { provider: query.provider } : {}),
-        ...(query.method ? { method: query.method } : {}),
-        ...(query.country ? { country: query.country } : {}),
-        ...(query.issuingBank ? { issuingBank: query.issuingBank } : {}),
-        ...(query.status ? { status: query.status } : {}),
-        ...(occurredAt ? { occurredAt } : {}),
-      },
-      orderBy: { occurredAt: 'desc' },
-      take: query.limit ?? 100,
-    });
+    const where: Prisma.TransactionWhereInput = {
+      ...(query.merchant ? { merchant: query.merchant } : {}),
+      ...(query.provider ? { provider: query.provider } : {}),
+      ...(query.method ? { method: query.method } : {}),
+      ...(query.country ? { country: query.country } : {}),
+      ...(query.issuingBank ? { issuingBank: query.issuingBank } : {}),
+      ...(query.failureReason ? { failureReason: query.failureReason } : {}),
+      ...(query.status ? { status: query.status } : {}),
+      ...(occurredAt ? { occurredAt } : {}),
+    };
+
+    return this.repository.findMany(where, query.limit ?? 100);
   }
+
+  count() {
+    return this.repository.count();
+  }
+
+  /**
+   * Normaliza una transaccion entrante:
+   *  - deriva failureReason para que TIMEOUT y ERROR puedan ser causa raiz
+   *  - congela el monto en USD con la tasa vigente
+   */
+  private async toRow(dto: CreateTransactionDto) {
+    const occurredAt = dto.occurredAt ? new Date(dto.occurredAt) : new Date();
+    const currency = dto.currency ?? 'USD';
+    const { amountUsdCents, fxRateId } = await this.fx.convert(dto.amountCents, currency, occurredAt);
+
+    return {
+      externalId: dto.externalId ?? null,
+      merchant: dto.merchant,
+      provider: dto.provider,
+      method: dto.method,
+      country: dto.country,
+      issuingBank: dto.issuingBank,
+      failureReason: deriveFailureReason(dto.status, dto.declineCode, dto.errorType),
+      status: dto.status,
+      declineCode: dto.declineCode ?? null,
+      errorType: dto.errorType ?? null,
+      latencyMs: dto.latencyMs ?? null,
+      amountCents: dto.amountCents,
+      currency,
+      amountUsdCents,
+      fxRateId,
+      occurredAt,
+    };
+  }
+}
+
+/**
+ * Un solo motivo de fallo, venga de un rechazo o de un error tecnico.
+ * Sin esto, el detector nunca podria diagnosticar "dLocal da timeout en Brasil":
+ * veria la caida pero no tendria la dimension que la explica.
+ */
+export function deriveFailureReason(
+  status: string,
+  declineCode?: string | null,
+  errorType?: string | null,
+): string | null {
+  if (status === 'APPROVED') return null;
+  if (status === 'DECLINED') return declineCode ?? 'DECLINED_UNKNOWN';
+  return errorType ?? status;
 }

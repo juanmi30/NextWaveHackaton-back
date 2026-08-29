@@ -11,9 +11,19 @@ export class IncidentsController {
     return this.incidents.findAll(query);
   }
 
+  @Get('stats')
+  stats() {
+    return this.incidents.countOpen();
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.incidents.findOne(id);
+  }
+
+  @Get(':id/history')
+  history(@Param('id') id: string) {
+    return this.incidents.history(id);
   }
 
   @Patch(':id/acknowledge')

@@ -1,22 +1,8 @@
 import { Transform, Type, type TransformFnParams } from 'class-transformer';
-import {
-  IsBoolean,
-  IsIn,
-  IsInt,
-  IsOptional,
-  IsString,
-  Max,
-  Min,
-} from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { DIMENSIONS } from '../../../common/dimensions.js';
 
-export const ANALYSIS_DIMENSIONS = [
-  'merchant',
-  'provider',
-  'method',
-  'country',
-  'issuingBank',
-  'route',
-] as const;
+export const ANALYSIS_DIMENSIONS = [...DIMENSIONS, 'route'] as const;
 export type AnalysisDimension = (typeof ANALYSIS_DIMENSIONS)[number];
 
 export class AnalyzeRiskDto {
@@ -50,23 +36,10 @@ export class AnalyzeRiskDto {
   @IsBoolean()
   includeLowRisk?: boolean = false;
 
-  @IsOptional()
-  @IsString()
-  merchant?: string;
-
-  @IsOptional()
-  @IsString()
-  provider?: string;
-
-  @IsOptional()
-  @IsString()
-  method?: string;
-
-  @IsOptional()
-  @IsString()
-  country?: string;
-
-  @IsOptional()
-  @IsString()
-  issuingBank?: string;
+  @IsOptional() @IsString() merchant?: string;
+  @IsOptional() @IsString() provider?: string;
+  @IsOptional() @IsString() method?: string;
+  @IsOptional() @IsString() country?: string;
+  @IsOptional() @IsString() issuingBank?: string;
+  @IsOptional() @IsString() failureReason?: string;
 }

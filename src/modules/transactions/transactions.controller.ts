@@ -21,4 +21,9 @@ export class TransactionsController {
   findAll(@Query() query: QueryTransactionsDto) {
     return this.transactions.findAll(query);
   }
+
+  @Get('count')
+  async count() {
+    return { count: await this.transactions.count() };
+  }
 }
