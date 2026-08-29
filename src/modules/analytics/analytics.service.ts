@@ -79,12 +79,15 @@ export class AnalyticsService {
         const previous = baselineIndex.get(JSON.stringify(slice.dimensions));
         const currentRate = approvalRate(slice.approved, slice.attempts);
         const baselineRate = previous ? approvalRate(previous.approved, previous.attempts) : 0;
+        const baselineAttempts = previous?.attempts ?? 0;
         return {
           dimensions: slice.dimensions,
           attempts: slice.attempts,
           approved: slice.approved,
           approvalRate: round(currentRate),
           baselineRate: round(baselineRate),
+          baselineAttempts,
+          hasBaseline: baselineAttempts > 0,
           drop: round(Math.max(0, baselineRate - currentRate)),
           volumeUsdCents: slice.amountUsdCents,
         };

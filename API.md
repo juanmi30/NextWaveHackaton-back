@@ -101,6 +101,16 @@ GET    /api/fx/rates
 POST   /api/fx/rates/seed
 ```
 
+### Payments Diagnostic Concierge
+```
+POST   /api/agent/incidents/:incidentId/analyze
+```
+
+Analiza un incidente existente con el OpenAI Agents SDK y devuelve un diagnostico
+JSON estructurado. Es read-only, requiere `OPENAI_API_KEY` y nunca ejecuta
+remediacion, rerouting ni cambios sobre el incidente. `OPENAI_MODEL` permite
+seleccionar un modelo; si se omite, el SDK utiliza su modelo predeterminado.
+
 ## Guion de demo
 
 ```bash
