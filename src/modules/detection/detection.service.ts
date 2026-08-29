@@ -8,6 +8,7 @@ import {
   type DimensionMap,
 } from '../../common/dimensions.js';
 import { approvalRate, confidenceFrom, round, zScore } from '../../common/stats.js';
+import { AlertsService } from '../alerts/alerts.service.js';
 import { BaselinesService, type BaselineLookup } from '../baselines/baselines.service.js';
 import { IncidentsRepository } from '../incidents/incidents.repository.js';
 import { TransactionsRepository, type SliceCount } from '../transactions/transactions.repository.js';
@@ -43,6 +44,7 @@ export class DetectionService {
     private readonly baselines: BaselinesService,
     private readonly incidents: IncidentsRepository,
     private readonly runs: DetectionRepository,
+    private readonly alerts: AlertsService,
   ) {}
 
   /**
@@ -242,6 +244,16 @@ export class DetectionService {
       sampleTransactionIds: samples.map((row) => row.id) as never,
       evidence: { create: evidence },
     } as Prisma.IncidentDiagnosisCreateInput);
+
+    if (!existing) {
+      await this.alerts.notifyIncidentCreated({
+        id: incidentId,
+        anchorFingerprint,
+        startedAt,
+        detectedAt: now,
+        ...metrics,
+      });
+    }
 
     return {
       incidentId,

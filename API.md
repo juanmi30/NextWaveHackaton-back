@@ -73,6 +73,10 @@ GET    /api/detection/quiet-stats?hours=24
 `quiet-stats` devuelve cuantas corridas terminaron sin alertar. Es la
 evidencia de que el sistema vigila sin generar falsas alarmas.
 
+Cuando una corrida crea un incidente nuevo, el backend intenta enviar alertas
+por correo y WhatsApp si los canales estan configurados en variables de entorno.
+La deteccion no falla si un canal externo no esta disponible.
+
 ### Incidentes
 ```
 GET    /api/incidents?status=OPEN&minSeverity=&limit=
