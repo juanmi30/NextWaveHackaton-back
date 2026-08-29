@@ -4,6 +4,14 @@ import { AgentDiagnosisSchema } from './agent-diagnosis.schema.js';
 const sufficientDiagnosis = {
   incidentId: 'incident-1',
   evidenceStatus: 'SUFFICIENT',
+  affectedScope: {
+    merchant: 'Mercado Uno',
+    provider: 'Adyen',
+    method: 'CARD',
+    country: 'BR',
+    issuingBank: 'Bradesco',
+    failureReason: 'DO_NOT_HONOR',
+  },
   rootCause: {
     statement: 'The degradation is isolated to one provider.',
     dimensions: {
@@ -59,6 +67,21 @@ describe('AgentDiagnosisSchema', () => {
     };
 
     expect(AgentDiagnosisSchema.safeParse(diagnosis).success).toBe(true);
+  });
+
+  it('requires every affectedScope field even when values are nullable', () => {
+    const diagnosis = {
+      ...sufficientDiagnosis,
+      affectedScope: {
+        merchant: 'Mercado Uno',
+        provider: 'Adyen',
+        method: null,
+        country: 'BR',
+        issuingBank: null,
+      },
+    };
+
+    expect(AgentDiagnosisSchema.safeParse(diagnosis).success).toBe(false);
   });
 
   it('rejects confidence outside the 0..1 range', () => {

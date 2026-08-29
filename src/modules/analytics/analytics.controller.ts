@@ -1,6 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { AnalyticsService } from './analytics.service.js';
 import { AnalyzeRiskDto } from './dto/analyze-risk.dto.js';
+import { DeclineReasonBreakdownDto } from './dto/decline-reason-breakdown.dto.js';
 
 @Controller('analytics')
 export class AnalyticsController {
@@ -16,6 +17,11 @@ export class AnalyticsController {
     return this.analytics.breakdown(query);
   }
 
+  @Get('decline-reasons')
+  declineReasons(@Query() query: DeclineReasonBreakdownDto) {
+    return this.analytics.declineReasonBreakdown(query);
+  }
+
   @Get('timeseries')
   timeseries(
     @Query('minutes') minutes?: string,
@@ -25,11 +31,13 @@ export class AnalyticsController {
     @Query('merchant') merchant?: string,
     @Query('method') method?: string,
     @Query('issuingBank') issuingBank?: string,
+    @Query('asOf') asOf?: string,
   ) {
     return this.analytics.timeseries(
       minutes ? Number(minutes) : 120,
       bucketMinutes ? Number(bucketMinutes) : 5,
       { provider, country, merchant, method, issuingBank },
+      asOf,
     );
   }
 }

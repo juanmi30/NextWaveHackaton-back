@@ -23,12 +23,12 @@ const BreakdownParameters = z.object({
   minSampleSize: z.number().int().min(1).max(1000).default(10),
 });
 
-export function createGetBreakdownTool(analytics: AnalyticsService) {
+export function createGetBreakdownTool(analytics: AnalyticsService, asOf?: Date) {
   return tool({
     name: 'get_breakdown',
     description:
       'Compare current and baseline payment performance by a dimension. Use it only to separate specific root-cause hypotheses.',
     parameters: BreakdownParameters,
-    execute: (parameters) => analytics.breakdown(parameters),
+    execute: (parameters) => analytics.breakdown({ ...parameters, asOf: asOf?.toISOString() }),
   });
 }

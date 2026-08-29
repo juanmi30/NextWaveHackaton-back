@@ -27,6 +27,9 @@ const ROUTES: Route[] = [
   { merchant: 'Nova Travel',      provider: 'Stripe',       method: 'PSE',  country: 'CO', issuingBank: 'Davivienda',  currency: 'COP', approval: 0.92, weight: 2 },
   { merchant: 'Mercado Uno',      provider: 'dLocal',       method: 'PIX',  country: 'BR', issuingBank: 'Itau',        currency: 'BRL', approval: 0.94, weight: 3 },
   { merchant: 'Mercado Uno',      provider: 'Adyen',        method: 'CARD', country: 'BR', issuingBank: 'Bradesco',    currency: 'BRL', approval: 0.91, weight: 2 },
+  { merchant: 'Mercado Uno',      provider: 'Adyen',        method: 'CARD', country: 'BR', issuingBank: 'Itau',        currency: 'BRL', approval: 0.90, weight: 2 },
+  { merchant: 'Mercado Uno',      provider: 'Adyen',        method: 'CARD', country: 'BR', issuingBank: 'Nubank',      currency: 'BRL', approval: 0.89, weight: 2 },
+  { merchant: 'Mercado Uno',      provider: 'Adyen',        method: 'PIX',  country: 'BR', issuingBank: 'Itau',        currency: 'BRL', approval: 0.92, weight: 2 },
   { merchant: 'Mercado Uno',      provider: 'Adyen',        method: 'WALLET', country: 'BR', issuingBank: 'Nubank',    currency: 'BRL', approval: 0.89, weight: 1 },
 ];
 

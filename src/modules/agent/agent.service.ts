@@ -11,10 +11,15 @@ import { IncidentsService } from '../incidents/incidents.service.js';
 import { createPaymentsConciergeAgent } from './agents/payments-concierge.agent.js';
 import { AgentDiagnosisSchema } from './schemas/agent-diagnosis.schema.js';
 import { createGetBreakdownTool } from './tools/get-breakdown.tool.js';
+import { createGetDeclineReasonDistributionTool } from './tools/get-decline-reason-distribution.tool.js';
 import { createGetIncidentHistoryTool } from './tools/get-incident-history.tool.js';
 import { createGetIncidentTool } from './tools/get-incident.tool.js';
 import { createGetTimeseriesTool } from './tools/get-timeseries.tool.js';
 import { createListActiveIncidentsTool } from './tools/list-active-incidents.tool.js';
+import {
+  enforceCanonicalIncidentImpact,
+  getCanonicalIncidentImpact,
+} from './canonical-incident-impact.js';
 
 @Injectable()
 export class AgentService {
@@ -25,7 +30,18 @@ export class AgentService {
   ) {}
 
   async analyzeIncident(incidentId: string) {
-    await this.incidents.findOne(incidentId);
+    const incident = await this.incidents.findOne(incidentId);
+    const analysisAnchor = incident.lastSeenAt ?? incident.detectedAt;
+    const latestDiagnosis = incident.diagnoses.at(-1);
+    const canonicalContext = {
+      impact: getCanonicalIncidentImpact(incident),
+      incidentTotals: {
+        expectedApprovals: incident.expectedApprovals,
+        actualApprovals: incident.actualApprovals,
+        lostApprovals: incident.lostApprovals,
+        latestDiagnosisObservedAttempts: latestDiagnosis?.observedAttempts ?? null,
+      },
+    };
 
     if (!this.config.get<string>('OPENAI_API_KEY')) {
       throw new ServiceUnavailableException(
@@ -36,8 +52,9 @@ export class AgentService {
     const tools = [
       createGetIncidentTool(this.incidents),
       createGetIncidentHistoryTool(this.incidents),
-      createGetBreakdownTool(this.analytics),
-      createGetTimeseriesTool(this.analytics),
+      createGetBreakdownTool(this.analytics, analysisAnchor),
+      createGetDeclineReasonDistributionTool(this.analytics, analysisAnchor),
+      createGetTimeseriesTool(this.analytics, analysisAnchor),
       createListActiveIncidentsTool(this.incidents),
     ];
     const model = this.config.get<string>('OPENAI_MODEL')?.trim() || undefined;
@@ -47,7 +64,10 @@ export class AgentService {
     try {
       const result = await run(
         agent,
-        `Analyze payment incident ${incidentId}. Investigate the root cause using your tools. Return only the requested structured diagnosis.`,
+        `Analyze payment incident ${incidentId}. Investigate the root cause using your tools. ` +
+          `Use these authoritative stored incident metrics exactly: ${JSON.stringify(canonicalContext)}. ` +
+          `Do not replace them with analytics breakdown or timeseries sample metrics. ` +
+          `Return only the requested structured diagnosis.`,
       );
       finalOutput = result.finalOutput;
     } catch (error) {
@@ -65,6 +85,6 @@ export class AgentService {
       throw new InternalServerErrorException('OpenAI returned a diagnosis for a different incident');
     }
 
-    return parsed.data;
+    return enforceCanonicalIncidentImpact(parsed.data, incident);
   }
 }

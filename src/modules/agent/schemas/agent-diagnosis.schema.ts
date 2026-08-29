@@ -2,21 +2,24 @@ import { z } from 'zod';
 
 export const EvidenceStatusSchema = z.enum(['SUFFICIENT', 'INSUFFICIENT']);
 
+export const DiagnosticDimensionsSchema = z.object({
+  merchant: z.string().nullable(),
+  provider: z.string().nullable(),
+  method: z.string().nullable(),
+  country: z.string().nullable(),
+  issuingBank: z.string().nullable(),
+  failureReason: z.string().nullable(),
+});
+
 export const AgentDiagnosisSchema = z
   .object({
     incidentId: z.string(),
     evidenceStatus: EvidenceStatusSchema,
+    affectedScope: DiagnosticDimensionsSchema,
     rootCause: z
       .object({
         statement: z.string(),
-        dimensions: z.object({
-          merchant: z.string().nullable(),
-          provider: z.string().nullable(),
-          method: z.string().nullable(),
-          country: z.string().nullable(),
-          issuingBank: z.string().nullable(),
-          failureReason: z.string().nullable(),
-        }),
+        dimensions: DiagnosticDimensionsSchema,
         confidence: z.number().min(0).max(1),
       })
       .nullable(),
