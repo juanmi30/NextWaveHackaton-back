@@ -9,4 +9,8 @@ export class GraphController {
   getIncidentGraph(@Param('id') id: string) {
     return this.graph.getIncidentGraph(id);
   }
+  @Get(':id/graph/explorer')
+  getIncidentExplorer(@Param('id') id: string) {
+    return this.graph.getIncidentExplorer(id);
+}
 }
