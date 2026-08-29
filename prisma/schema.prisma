@@ -5,13 +5,19 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 enum PaymentStatus {
   APPROVED
   DECLINED
   ERROR
+  TIMEOUT
+}
+
+enum IncidentStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
 }
 
 model Transaction {
@@ -23,6 +29,8 @@ model Transaction {
   issuingBank  String
   status       PaymentStatus
   declineCode  String?
+  errorType    String?
+  latencyMs    Int?
   amountCents  Int
   currency     String        @default("USD")
   occurredAt   DateTime      @default(now())
@@ -30,20 +38,23 @@ model Transaction {
   @@index([occurredAt])
   @@index([provider, country, occurredAt])
   @@index([merchant, issuingBank, occurredAt])
+  @@index([method, country, occurredAt])
 }
 
 model Incident {
-  id             String   @id @default(cuid())
+  id             String         @id @default(cuid())
   title          String
   dimensions     Json
-  severity       Int      @default(0)
+  severity       Int            @default(0)
+  status         IncidentStatus @default(OPEN)
   baselineRate   Float
   observedRate   Float
-  estimatedLoss  Int      @default(0)
+  estimatedLoss  Int            @default(0)
   evidence       Json?
   recommendation String?
-  detectedAt     DateTime @default(now())
+  detectedAt     DateTime       @default(now())
   resolvedAt     DateTime?
 
+  @@index([status, detectedAt])
   @@index([detectedAt])
 }
