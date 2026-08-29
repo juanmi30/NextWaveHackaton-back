@@ -7,6 +7,10 @@ datasource db {
   provider = "postgresql"
 }
 
+// ---------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------
+
 enum PaymentStatus {
   APPROVED
   DECLINED
@@ -20,41 +24,189 @@ enum IncidentStatus {
   RESOLVED
 }
 
+enum DetectionOutcome {
+  NO_ANOMALY
+  INSUFFICIENT_EVIDENCE
+  INCIDENTS_FOUND
+}
+
+// ---------------------------------------------------------------
+// Ingesta
+// ---------------------------------------------------------------
+
 model Transaction {
-  id           String        @id @default(cuid())
-  merchant     String
-  provider     String
-  method       String
-  country      String
-  issuingBank  String
-  status       PaymentStatus
-  declineCode  String?
-  errorType    String?
-  latencyMs    Int?
-  amountCents  Int
-  currency     String        @default("USD")
-  occurredAt   DateTime      @default(now())
+  id         String  @id @default(cuid())
+  externalId String? @unique
+
+  // Las seis dimensiones. Texto plano, sin FK a catalogos:
+  // el sistema debe aceptar valores que nunca ha visto.
+  merchant      String
+  provider      String
+  method        String
+  country       String
+  issuingBank   String
+  failureReason String?
+
+  status      PaymentStatus
+  declineCode String?
+  errorType   String?
+  latencyMs   Int?
+
+  amountCents    Int
+  currency       String  @default("USD")
+  amountUsdCents Int     @default(0)
+  fxRateId       String?
+  fxRate         FxRate? @relation(fields: [fxRateId], references: [id])
+
+  occurredAt DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([occurredAt])
   @@index([provider, country, occurredAt])
   @@index([merchant, issuingBank, occurredAt])
   @@index([method, country, occurredAt])
+  @@index([failureReason, occurredAt])
 }
 
+model FxRate {
+  id          String   @id @default(cuid())
+  currency    String
+  rateDate    DateTime @db.Date
+  usdPerUnit  Decimal  @db.Decimal(18, 8)
+  source      String?
+
+  transactions Transaction[]
+
+  @@unique([currency, rateDate])
+}
+
+// ---------------------------------------------------------------
+// Comportamiento esperado
+// ---------------------------------------------------------------
+
+model Baseline {
+  id           String @id @default(cuid())
+  dimensionKey String
+  segmentKey   String
+  segment      Json
+
+  hourOfDay Int
+  dayOfWeek Int
+
+  expectedRate Float
+  variance     Float
+  sampleSize   Int
+  calculatedAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([dimensionKey, segmentKey, hourOfDay, dayOfWeek])
+  @@index([dimensionKey, segmentKey])
+}
+
+// ---------------------------------------------------------------
+// Deteccion
+// ---------------------------------------------------------------
+
+model DetectionRun {
+  id String @id @default(cuid())
+
+  windowStart   DateTime @db.Timestamptz(3)
+  windowEnd     DateTime @db.Timestamptz(3)
+  baselineStart DateTime @db.Timestamptz(3)
+  baselineEnd   DateTime @db.Timestamptz(3)
+
+  params          Json
+  combosEvaluated Int              @default(0)
+  outcome         DetectionOutcome
+  durationMs      Int?
+  finishedAt      DateTime         @default(now()) @db.Timestamptz(3)
+
+  incidents   Incident[]
+  diagnoses   IncidentDiagnosis[]
+
+  @@index([finishedAt])
+  @@index([outcome, finishedAt])
+}
+
+// ---------------------------------------------------------------
+// Incidentes
+// ---------------------------------------------------------------
+
 model Incident {
-  id             String         @id @default(cuid())
-  title          String
-  dimensions     Json
-  severity       Int            @default(0)
-  status         IncidentStatus @default(OPEN)
-  baselineRate   Float
-  observedRate   Float
-  estimatedLoss  Int            @default(0)
-  evidence       Json?
-  recommendation String?
-  detectedAt     DateTime       @default(now())
-  resolvedAt     DateTime?
+  id             String       @id @default(cuid())
+  detectionRunId String
+  detectionRun   DetectionRun @relation(fields: [detectionRunId], references: [id])
+
+  anchorFingerprint String
+  fingerprint       String
+
+  status   IncidentStatus @default(OPEN)
+  severity Int            @default(0)
+
+  expectedApprovals  Int @default(0)
+  actualApprovals    Int @default(0)
+  lostApprovals      Int @default(0)
+  averageTicketCents Int @default(0)
+  lossPerMinuteCents Int @default(0)
+
+  summaryOps          String?
+  summaryExec         String?
+  recommendation      String?
+  confidenceStatement String?
+
+  startedAt  DateTime  @db.Timestamptz(3)
+  detectedAt DateTime  @default(now()) @db.Timestamptz(3)
+  lastSeenAt DateTime  @default(now()) @db.Timestamptz(3)
+  resolvedAt DateTime? @db.Timestamptz(3)
+
+  diagnoses IncidentDiagnosis[]
 
   @@index([status, detectedAt])
+  @@index([anchorFingerprint])
+  @@index([fingerprint])
   @@index([detectedAt])
+}
+
+model IncidentDiagnosis {
+  id             String       @id @default(cuid())
+  incidentId     String
+  incident       Incident     @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  detectionRunId String
+  detectionRun   DetectionRun @relation(fields: [detectionRunId], references: [id])
+
+  version         Int
+  fingerprint     String
+  dimensions      Json
+  dimensionDepth  Int
+
+  baselineRate     Float
+  observedRate     Float
+  baselineAttempts Int
+  observedAttempts Int
+  confidence       Float
+
+  sampleTransactionIds Json?
+  createdAt            DateTime @default(now()) @db.Timestamptz(3)
+
+  evidence DiagnosisEvidence[]
+
+  @@unique([incidentId, version])
+  @@index([fingerprint])
+}
+
+model DiagnosisEvidence {
+  id          String            @id @default(cuid())
+  diagnosisId String
+  diagnosis   IncidentDiagnosis @relation(fields: [diagnosisId], references: [id], onDelete: Cascade)
+
+  dimension      String
+  dimensionValue String
+
+  baselineRate Float
+  observedRate Float
+  difference   Float
+  attempts     Int
+  confidence   Float
+  isRootCause  Boolean @default(false)
+
+  @@index([diagnosisId])
+  @@index([diagnosisId, isRootCause])
 }
