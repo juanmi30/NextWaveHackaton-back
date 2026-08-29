@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsDateString, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class DeclineReasonBreakdownDto {
   @IsOptional() @IsString() merchant?: string;
@@ -28,4 +28,8 @@ export class DeclineReasonBreakdownDto {
   @Min(1)
   @Max(1000)
   minSampleSize?: number = 1;
+
+  @IsOptional()
+  @IsDateString()
+  asOf?: string | Date;
 }

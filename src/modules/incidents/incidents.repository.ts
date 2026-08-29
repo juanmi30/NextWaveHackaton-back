@@ -43,10 +43,10 @@ export class IncidentsRepository {
     });
   }
 
-  /** Incidentes ya cerrados con el mismo anclaje: la "memoria" del sistema. */
-  findResolvedByAnchor(anchorFingerprint: string, take = 5) {
+  /** Incidentes ya cerrados con exactamente la misma ruta normalizada. */
+  findResolvedByFingerprint(fingerprint: string, take = 5) {
     return this.prisma.incident.findMany({
-      where: { anchorFingerprint, status: 'RESOLVED' },
+      where: { fingerprint, status: 'RESOLVED' },
       orderBy: { detectedAt: 'desc' },
       take,
     });

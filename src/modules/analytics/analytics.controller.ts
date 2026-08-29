@@ -31,11 +31,13 @@ export class AnalyticsController {
     @Query('merchant') merchant?: string,
     @Query('method') method?: string,
     @Query('issuingBank') issuingBank?: string,
+    @Query('asOf') asOf?: string,
   ) {
     return this.analytics.timeseries(
       minutes ? Number(minutes) : 120,
       bucketMinutes ? Number(bucketMinutes) : 5,
       { provider, country, merchant, method, issuingBank },
+      asOf,
     );
   }
 }

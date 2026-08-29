@@ -13,12 +13,13 @@ const DeclineReasonDistributionParameters = z.object({
   minSampleSize: z.number().int().min(1).max(1000).default(1),
 });
 
-export function createGetDeclineReasonDistributionTool(analytics: AnalyticsService) {
+export function createGetDeclineReasonDistributionTool(analytics: AnalyticsService, asOf?: Date) {
   return tool({
     name: 'get_decline_reason_distribution',
     description:
       'Compare backend-calculated decline-reason shares in current and baseline windows. Use this instead of approval-rate breakdowns for failureReason analysis.',
     parameters: DeclineReasonDistributionParameters,
-    execute: (parameters) => analytics.declineReasonBreakdown(parameters),
+    execute: (parameters) =>
+      analytics.declineReasonBreakdown({ ...parameters, asOf: asOf?.toISOString() }),
   });
 }

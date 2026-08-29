@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { DIMENSIONS, type Dimension } from '../../common/dimensions.js';
+import type { Dimension } from '../../common/dimensions.js';
 import { approvalRate, percentile, round } from '../../common/stats.js';
 import { IncidentsService } from '../incidents/incidents.service.js';
 import { TransactionsRepository, toWhere } from '../transactions/transactions.repository.js';
@@ -7,6 +7,8 @@ import { DetectionRepository } from '../detection/detection.repository.js';
 import type { AnalyzeRiskDto } from './dto/analyze-risk.dto.js';
 import type { DeclineReasonBreakdownDto } from './dto/decline-reason-breakdown.dto.js';
 import type { Prisma } from '../../generated/prisma/client.js';
+
+const ROUTE_DIMENSIONS: Dimension[] = ['merchant', 'provider', 'method', 'country', 'issuingBank'];
 
 /**
  * Modulo de solo lectura. La deteccion y la creacion de incidentes viven
@@ -53,11 +55,11 @@ export class AnalyticsService {
     const baselineHours = dto.baselineHours ?? 24;
     const minSampleSize = dto.minSampleSize ?? 10;
 
-    const now = new Date();
+    const now = resolveAsOf(dto.asOf);
     const currentStart = new Date(now.getTime() - windowMinutes * 60_000);
     const baselineStart = new Date(currentStart.getTime() - baselineHours * 3_600_000);
 
-    const by: Dimension[] = groupBy === 'route' ? [...DIMENSIONS] : [groupBy as Dimension];
+    const by: Dimension[] = groupBy === 'route' ? ROUTE_DIMENSIONS : [groupBy as Dimension];
     const filters = toWhere({
       merchant: dto.merchant,
       provider: dto.provider,
@@ -110,7 +112,7 @@ export class AnalyticsService {
     const windowMinutes = dto.timeWindowMinutes ?? 60;
     const baselineHours = dto.baselineHours ?? 24;
     const minSampleSize = dto.minSampleSize ?? 1;
-    const now = new Date();
+    const now = resolveAsOf(dto.asOf);
     const currentStart = new Date(now.getTime() - windowMinutes * 60_000);
     const baselineStart = new Date(currentStart.getTime() - baselineHours * 3_600_000);
     const filters = toWhere({
@@ -163,8 +165,13 @@ export class AnalyticsService {
   }
 
   /** Serie temporal para las graficas. */
-  async timeseries(minutes = 120, bucketMinutes = 5, dimensions: Record<string, string | undefined> = {}) {
-    const now = new Date();
+  async timeseries(
+    minutes = 120,
+    bucketMinutes = 5,
+    dimensions: Record<string, string | undefined> = {},
+    asOf?: string | Date,
+  ) {
+    const now = resolveAsOf(asOf);
     const from = new Date(now.getTime() - minutes * 60_000);
     const rows = await this.transactions.findWindow(from, now, toWhere(dimensions) as Prisma.TransactionWhereInput);
 
@@ -193,6 +200,10 @@ export class AnalyticsService {
         })),
     };
   }
+}
+
+function resolveAsOf(asOf?: string | Date): Date {
+  return asOf ? new Date(asOf) : new Date();
 }
 
 function declineReasonCounts(

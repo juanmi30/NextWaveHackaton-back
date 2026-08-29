@@ -1,5 +1,5 @@
 import { Transform, Type, type TransformFnParams } from 'class-transformer';
-import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { DIMENSIONS } from '../../../common/dimensions.js';
 
 export const ANALYSIS_DIMENSIONS = [...DIMENSIONS, 'route'] as const;
@@ -35,6 +35,10 @@ export class AnalyzeRiskDto {
   @Transform(({ value }: TransformFnParams) => value === true || value === 'true')
   @IsBoolean()
   includeLowRisk?: boolean = false;
+
+  @IsOptional()
+  @IsDateString()
+  asOf?: string | Date;
 
   @IsOptional() @IsString() merchant?: string;
   @IsOptional() @IsString() provider?: string;

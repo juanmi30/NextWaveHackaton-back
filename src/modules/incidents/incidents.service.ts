@@ -21,17 +21,20 @@ export class IncidentsService {
     return incident;
   }
 
-  /**
-   * Incidentes historicos con el mismo anclaje. Es lo que permite decir
-   * "esto ya paso el martes" sin ninguna regla escrita a mano.
-   */
+  /** Incidentes resueltos con exactamente el mismo fingerprint normalizado. */
   async history(id: string) {
     const incident = await this.findOne(id);
-    const previous = await this.repository.findResolvedByAnchor(incident.anchorFingerprint);
+    const candidates = await this.repository.findResolvedByFingerprint(incident.fingerprint);
+    const previousOccurrences = candidates.filter(
+      (row) =>
+        row.id !== incident.id &&
+        row.status === 'RESOLVED' &&
+        row.fingerprint === incident.fingerprint,
+    );
     return {
       anchorFingerprint: incident.anchorFingerprint,
-      isRecurrence: previous.some((row) => row.id !== incident.id),
-      previousOccurrences: previous.filter((row) => row.id !== incident.id),
+      isRecurrence: previousOccurrences.length > 0,
+      previousOccurrences,
     };
   }
 

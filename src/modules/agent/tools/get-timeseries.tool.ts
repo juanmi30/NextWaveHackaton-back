@@ -12,13 +12,13 @@ const TimeseriesParameters = z.object({
   issuingBank: z.string().min(1).optional(),
 });
 
-export function createGetTimeseriesTool(analytics: AnalyticsService) {
+export function createGetTimeseriesTool(analytics: AnalyticsService, asOf?: Date) {
   return tool({
     name: 'get_timeseries',
     description:
       'Read backend-calculated approval-rate and latency buckets to establish onset, persistence, or recovery.',
     parameters: TimeseriesParameters,
     execute: ({ minutes, bucketMinutes, ...dimensions }) =>
-      analytics.timeseries(minutes, bucketMinutes, dimensions),
+      analytics.timeseries(minutes, bucketMinutes, dimensions, asOf),
   });
 }
