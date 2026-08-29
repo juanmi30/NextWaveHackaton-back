@@ -2,18 +2,20 @@ import {
   Body,
   Controller,
   Post,
+  Get,
 } from '@nestjs/common';
 
 import { EvaluatePredictionDto } from './dto/evaluate-prediction.dto.js';
-import { PredictionService } from './prediction.service.js';
+import {
+  PredictionService,
+  type PredictionResult,
+  type PredictionScanResult,
+  type SegmentPredictionResult,
+} from './prediction.service.js';
 
 import {
   EvaluateSegmentDto,
 } from './dto/evaluate-segment.dto.js';
-
-import type {
-  SegmentPredictionResult,
-} from './prediction.service.js';
 
 @Controller('predictions')
 export class PredictionController {
@@ -36,5 +38,10 @@ export class PredictionController {
   ): Promise<SegmentPredictionResult> {
     return this.predictionService
       .evaluateSegment(input);
+  }
+
+  @Get('scan')
+  scan(): Promise<PredictionScanResult> {
+    return this.predictionService.scan();
   }
 }

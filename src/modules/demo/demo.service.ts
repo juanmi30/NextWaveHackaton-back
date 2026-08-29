@@ -291,7 +291,7 @@ export class DemoService {
       * Bucket 2 = hace 5–0 min
       */
       const bucketStartMinutesAgo =
-        15 - bucketIndex * 5;
+        14 - bucketIndex * 5;
 
       for (
         let minuteOffset = 0;
@@ -479,13 +479,83 @@ function makePredictiveTx(
   if (status === 'TIMEOUT') {
     latencyMs +=
       2500 +
-      Math.floor(random() * 1800);
+      Math.floor(
+        random() * 1800,
+      );
   }
 
   if (status === 'ERROR') {
     latencyMs +=
       500 +
-      Math.floor(random() * 700);
+      Math.floor(
+        random() * 700,
+      );
+  }
+
+  /*
+   * Taxonomía entregada por el mentor de Yuno.
+   *
+   * En este escenario predictivo queremos simular
+   * principalmente fallos accionables relacionados
+   * con proveedor/integración.
+   */
+  let declineCode:
+    string | undefined;
+
+  let errorType:
+    string | undefined;
+
+  if (status === 'DECLINED') {
+    const declineCodes = [
+      'DECLINED_BY_PROVIDER',
+      'INVALID_ISSUER',
+      'REQUESTS_EXCEEDED',
+    ];
+
+    declineCode =
+      declineCodes[
+        Math.floor(
+          random() *
+            declineCodes.length,
+        )
+      ];
+  }
+
+  if (status === 'ERROR') {
+    const integrationErrors = [
+      'TERMINAL_ERROR',
+      'INVALID_RESPONSE_FORMAT',
+      'UNKNOWN_ERROR',
+    ];
+
+    errorType =
+      integrationErrors[
+        Math.floor(
+          random() *
+            integrationErrors.length,
+        )
+      ];
+  }
+
+  if (status === 'TIMEOUT') {
+    /*
+     * La transacción sigue siendo TIMEOUT,
+     * pero usamos un failureReason del
+     * vocabulario real para representar
+     * degradación del proveedor.
+     */
+    const timeoutReasons = [
+      'ACQUIRE_CONTINGENCY',
+      'REQUESTS_EXCEEDED',
+    ];
+
+    errorType =
+      timeoutReasons[
+        Math.floor(
+          random() *
+            timeoutReasons.length,
+        )
+      ];
   }
 
   const scale =
@@ -498,30 +568,26 @@ function makePredictiveTx(
           : 1;
 
   return {
-    merchant: route.merchant,
-    provider: route.provider,
-    method: route.method,
-    country: route.country,
-    issuingBank: route.issuingBank,
+    merchant:
+      route.merchant,
+
+    provider:
+      route.provider,
+
+    method:
+      route.method,
+
+    country:
+      route.country,
+
+    issuingBank:
+      route.issuingBank,
 
     status,
 
-    declineCode:
-      status === 'DECLINED'
-        ? DECLINE_CODES[
-            Math.floor(
-              random() *
-                DECLINE_CODES.length,
-            )
-          ]
-        : undefined,
+    declineCode,
 
-    errorType:
-      status === 'ERROR'
-        ? 'PROVIDER_DEGRADATION'
-        : status === 'TIMEOUT'
-          ? 'GATEWAY_SLOWDOWN'
-          : undefined,
+    errorType,
 
     latencyMs,
 
@@ -535,7 +601,8 @@ function makePredictiveTx(
         ) * scale,
       ),
 
-    currency: route.currency,
+    currency:
+      route.currency,
 
     occurredAt:
       occurredAt.toISOString(),

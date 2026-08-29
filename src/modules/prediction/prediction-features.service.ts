@@ -2,7 +2,11 @@ import {
   Injectable,
 } from '@nestjs/common';
 
-import type { DimensionMap } from '../../common/dimensions.js';
+import type {
+  Dimension,
+  DimensionMap,
+} from '../../common/dimensions.js';
+
 import {
   approvalRate,
   percentile,
@@ -12,6 +16,11 @@ import {
   TransactionsRepository,
   toWhere,
 } from '../transactions/transactions.repository.js';
+
+import {
+  classifyFailureReason,
+  type FailureClassification,
+} from '../../common/payment-failure-taxonomy.js';
 
 import type { EvaluatePredictionDto } from './dto/evaluate-prediction.dto.js';
 import type { EvaluateSegmentDto } from './dto/evaluate-segment.dto.js';
@@ -24,6 +33,19 @@ const BASELINE_HOURS = 24;
 const MIN_CURRENT_ATTEMPTS = 10;
 const MIN_BASELINE_ATTEMPTS = 50;
 
+const BASELINE_GAP_MINUTES = 60;
+
+const PREDICTION_DIMENSIONS: Dimension[] = [
+  'merchant',
+  'provider',
+  'method',
+  'country',
+  'issuingBank',
+];
+
+const DISCOVERY_WINDOW_MINUTES = 15;
+const MIN_DISCOVERY_ATTEMPTS = 10;
+
 export interface FeatureEvidence {
   currentAttempts: number;
   baselineAttempts: number;
@@ -33,6 +55,30 @@ export interface FeatureEvidence {
   sufficientEvidence: boolean;
 
   reason?: string;
+}
+
+export interface FailureReasonSummary
+  extends FailureClassification {
+  count: number;
+  share: number;
+}
+
+export interface FailureContext {
+  totalAttempts: number;
+
+  totalFailures: number;
+
+  failureRate: number;
+
+  actionableFailures: number;
+
+  issuerSideFailures: number;
+
+  limitedFailures: number;
+
+  unknownFailures: number;
+
+  topReasons: FailureReasonSummary[];
 }
 
 export interface ExtractedFeatures {
@@ -53,6 +99,8 @@ export interface ExtractedFeatures {
   modelInput: EvaluatePredictionDto;
 
   evidence: FeatureEvidence;
+
+  failureContext: FailureContext;
 }
 
 interface BucketMetrics {
@@ -71,6 +119,185 @@ export class PredictionFeaturesService {
     private readonly transactions: TransactionsRepository,
   ) {}
 
+    async discoverActiveSegments(): Promise<
+    Array<{
+        segment: DimensionMap;
+        attempts: number;
+    }>
+    > {
+    const to = new Date();
+
+    const from = new Date(
+        to.getTime() -
+        DISCOVERY_WINDOW_MINUTES * 60_000,
+    );
+
+    const slices =
+        await this.transactions.aggregateBy(
+        PREDICTION_DIMENSIONS,
+        from,
+        to,
+        );
+
+    return slices
+        .filter(
+        (slice) =>
+            slice.attempts >=
+            MIN_DISCOVERY_ATTEMPTS,
+        )
+        .filter((slice) =>
+        PREDICTION_DIMENSIONS.every(
+            (dimension) => {
+            const value =
+                slice.dimensions[dimension];
+
+            return (
+                value !== undefined &&
+                value !== '(sin valor)'
+            );
+            },
+        ),
+        )
+        .map((slice) => ({
+        segment: slice.dimensions,
+        attempts: slice.attempts,
+        }))
+        .sort(
+        (a, b) =>
+            b.attempts - a.attempts,
+        );
+    }
+    
+    private buildFailureContext(
+    transactions: Array<{
+        status: string;
+        failureReason: string | null;
+    }>,
+    ): FailureContext {
+    const totalAttempts =
+        transactions.length;
+
+    const failures =
+        transactions.filter(
+        (transaction) =>
+            transaction.status !==
+            'APPROVED',
+        );
+
+    const totalFailures =
+        failures.length;
+
+    const counts =
+        new Map<string, number>();
+
+    for (const transaction of failures) {
+        const reason =
+        transaction.failureReason ??
+        'UNKNOWN';
+
+        counts.set(
+        reason,
+        (counts.get(reason) ?? 0) + 1,
+        );
+    }
+
+    /*
+    * Primero clasificamos TODOS los motivos.
+    * Después seleccionaremos únicamente los
+    * cinco principales para mostrarlos.
+    */
+    const allReasons =
+        Array.from(counts.entries())
+        .map(([reason, count]) => {
+            const classification =
+            classifyFailureReason(reason);
+
+            if (!classification) {
+            return null;
+            }
+
+            return {
+            ...classification,
+
+            count,
+
+            share:
+                totalFailures === 0
+                ? 0
+                : count / totalFailures,
+            };
+        })
+        .filter(
+            (
+            item,
+            ): item is FailureReasonSummary =>
+            item !== null,
+        )
+        .sort(
+            (a, b) =>
+            b.count - a.count,
+        );
+
+    let actionableFailures = 0;
+    let issuerSideFailures = 0;
+    let limitedFailures = 0;
+    let unknownFailures = 0;
+
+    /*
+    * IMPORTANTE:
+    * los contadores se calculan sobre TODOS
+    * los fallos, no solamente topReasons.
+    */
+    for (const reason of allReasons) {
+        switch (reason.actionability) {
+        case 'ACTIONABLE':
+            actionableFailures +=
+            reason.count;
+            break;
+
+        case 'ISSUER_SIDE':
+            issuerSideFailures +=
+            reason.count;
+            break;
+
+        case 'LIMITED':
+            limitedFailures +=
+            reason.count;
+            break;
+
+        case 'UNKNOWN':
+            unknownFailures +=
+            reason.count;
+            break;
+        }
+    }
+
+    const topReasons =
+        allReasons.slice(0, 5);
+
+    return {
+        totalAttempts,
+
+        totalFailures,
+
+        failureRate:
+        totalAttempts === 0
+            ? 0
+            : totalFailures /
+            totalAttempts,
+
+        actionableFailures,
+
+        issuerSideFailures,
+
+        limitedFailures,
+
+        unknownFailures,
+
+        topReasons,
+    };
+    }
+
   async extract(
     dto: EvaluateSegmentDto,
   ): Promise<ExtractedFeatures> {
@@ -84,7 +311,10 @@ export class PredictionFeaturesService {
         recentMinutes * 60_000,
     );
 
-    const baselineEnd = recentStart;
+    const baselineEnd = new Date(
+    now.getTime() -
+        BASELINE_GAP_MINUTES * 60_000,
+    );
 
     const baselineStart = new Date(
       baselineEnd.getTime() -
@@ -218,6 +448,11 @@ export class PredictionFeaturesService {
         baselineTotals.attempts,
       );
 
+    const failureContext =
+    this.buildFailureContext(
+        recentTransactions,
+    );
+
     return {
       segment,
 
@@ -236,6 +471,8 @@ export class PredictionFeaturesService {
       modelInput,
 
       evidence,
+
+      failureContext,
     };
   }
 

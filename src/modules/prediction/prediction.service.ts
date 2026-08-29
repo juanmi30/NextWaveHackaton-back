@@ -82,8 +82,57 @@ export interface SegmentPredictionResult {
   evidence:
     ExtractedFeatures['evidence'];
 
+  failureContext:
+    ExtractedFeatures['failureContext'];
+
   prediction:
     PredictionResult | null;
+}
+
+export interface PredictionScanResult {
+  scannedAt: string;
+
+  evaluatedSegments: number;
+
+  predictions: number;
+
+  insufficientEvidence: number;
+
+  watchRisks: Array<{
+    segment: Record<
+      string,
+      string | undefined
+    >;
+
+    evidence:
+      ExtractedFeatures['evidence'];
+
+    features:
+      ExtractedFeatures['modelInput'];
+
+    failureContext:
+      ExtractedFeatures['failureContext'];
+
+    prediction: PredictionResult;
+  }>;
+
+  elevatedRisks: Array<{
+    segment: Record<
+      string,
+      string | undefined
+    >;
+
+    evidence:
+      ExtractedFeatures['evidence'];
+
+    features:
+      ExtractedFeatures['modelInput'];
+
+    failureContext:
+      ExtractedFeatures['failureContext'];
+
+    prediction: PredictionResult;
+  }>;
 }
 
 @Injectable()
@@ -102,36 +151,62 @@ export class PredictionService {
     input: EvaluatePredictionDto,
   ): PredictionResult {
     const values: Record<string, number> = {
-      baseline_approval_rate: input.baselineApprovalRate,
-      approval_drop: input.approvalDrop,
-      approval_slope: input.approvalSlope,
-      timeout_rate: input.timeoutRate,
-      timeout_slope: input.timeoutSlope,
-      error_rate: input.errorRate,
-      p95_latency_ms: input.p95LatencyMs,
-      latency_slope: input.latencySlope,
+      baseline_approval_rate:
+        input.baselineApprovalRate,
+
+      approval_drop:
+        input.approvalDrop,
+
+      approval_slope:
+        input.approvalSlope,
+
+      timeout_rate:
+        input.timeoutRate,
+
+      timeout_slope:
+        input.timeoutSlope,
+
+      error_rate:
+        input.errorRate,
+
+      p95_latency_ms:
+        input.p95LatencyMs,
+
+      latency_slope:
+        input.latencySlope,
     };
 
-    const standardized = this.artifact.features.map(
-      (feature, index) => {
-        const rawValue = values[feature];
+    const standardized =
+      this.artifact.features.map(
+        (feature, index) => {
+          const rawValue =
+            values[feature];
 
-        if (rawValue === undefined) {
-          throw new InternalServerErrorException(
-            `Feature no soportada por el runtime: ${feature}`,
-          );
-        }
+          if (rawValue === undefined) {
+            throw new InternalServerErrorException(
+              `Feature no soportada por el runtime: ${feature}`,
+            );
+          }
 
-        const mean = this.artifact.scaler.mean[index];
-        const scale = this.artifact.scaler.scale[index];
+          const mean =
+            this.artifact.scaler.mean[
+              index
+            ];
 
-        return scale === 0
-          ? rawValue - mean
-          : (rawValue - mean) / scale;
-      },
-    );
+          const scale =
+            this.artifact.scaler.scale[
+              index
+            ];
 
-    let logit = this.artifact.model.intercept;
+          return scale === 0
+            ? rawValue - mean
+            : (rawValue - mean) /
+                scale;
+        },
+      );
+
+    let logit =
+      this.artifact.model.intercept;
 
     const signals: Signal[] = [];
 
@@ -141,10 +216,12 @@ export class PredictionService {
       index++
     ) {
       const coefficient =
-        this.artifact.model.coefficients[index];
+        this.artifact.model
+          .coefficients[index];
 
       const contribution =
-        standardized[index] * coefficient;
+        standardized[index] *
+        coefficient;
 
       logit += contribution;
 
@@ -153,8 +230,12 @@ export class PredictionService {
 
       signals.push({
         feature,
-        value: values[feature],
+
+        value:
+          values[feature],
+
         contribution,
+
         effect:
           contribution >= 0
             ? 'INCREASES_RISK'
@@ -166,36 +247,51 @@ export class PredictionService {
       this.sigmoid(logit);
 
     const riskLevel =
-      this.getRiskLevel(failureProbability);
+      this.getRiskLevel(
+        failureProbability,
+      );
 
     const topSignals = signals
       .sort(
         (a, b) =>
-          Math.abs(b.contribution) -
-          Math.abs(a.contribution),
+          Math.abs(
+            b.contribution,
+          ) -
+          Math.abs(
+            a.contribution,
+          ),
       )
       .slice(0, 4);
 
     return {
       model: {
-        type: this.artifact.modelType,
-        version: this.artifact.modelVersion,
+        type:
+          this.artifact.modelType,
+
+        version:
+          this.artifact.modelVersion,
       },
 
       predictionHorizonMinutes:
-        this.artifact.predictionHorizonMinutes,
+        this.artifact
+          .predictionHorizonMinutes,
 
       failureProbability,
 
       failureProbabilityPercent:
-        Math.round(failureProbability * 10000) / 100,
+        Math.round(
+          failureProbability *
+            10000,
+        ) / 100,
 
       decisionThreshold:
-        this.artifact.decisionThreshold,
+        this.artifact
+          .decisionThreshold,
 
       elevatedRisk:
         failureProbability >=
-        this.artifact.decisionThreshold,
+        this.artifact
+          .decisionThreshold,
 
       riskLevel,
 
@@ -227,6 +323,9 @@ export class PredictionService {
         evidence:
           extracted.evidence,
 
+        failureContext:
+          extracted.failureContext,
+
         prediction: null,
       };
     }
@@ -248,18 +347,162 @@ export class PredictionService {
       evidence:
         extracted.evidence,
 
+      failureContext:
+        extracted.failureContext,
+
       prediction,
     };
   }
 
-  private sigmoid(value: number): number {
+  async scan(): Promise<PredictionScanResult> {
+    const activeSegments =
+      await this.featuresService
+        .discoverActiveSegments();
+
+    const results =
+      await Promise.all(
+        activeSegments.map(
+          ({ segment }) =>
+            this.evaluateSegment({
+              merchant:
+                segment.merchant,
+
+              provider:
+                segment.provider,
+
+              method:
+                segment.method,
+
+              country:
+                segment.country,
+
+              issuingBank:
+                segment.issuingBank,
+            }),
+        ),
+      );
+
+    const predictions =
+      results.filter(
+        (
+          result,
+        ): result is SegmentPredictionResult & {
+          status: 'PREDICTION';
+
+          features:
+            ExtractedFeatures['modelInput'];
+
+          prediction:
+            PredictionResult;
+        } =>
+          result.status ===
+            'PREDICTION' &&
+          result.features !==
+            null &&
+          result.prediction !==
+            null,
+      );
+
+    const watchRisks =
+      predictions
+        .filter(
+          (result) =>
+            result.prediction
+              .riskLevel ===
+            'WATCH',
+        )
+        .sort(
+          (a, b) =>
+            b.prediction
+              .failureProbability -
+            a.prediction
+              .failureProbability,
+        )
+        .map((result) => ({
+          segment:
+            result.segment,
+
+          evidence:
+            result.evidence,
+
+          features:
+            result.features,
+
+          failureContext:
+            result.failureContext,
+
+          prediction:
+            result.prediction,
+        }));
+
+    const elevatedRisks =
+      predictions
+        .filter(
+          (result) =>
+            result.prediction
+              .elevatedRisk,
+        )
+        .sort(
+          (a, b) =>
+            b.prediction
+              .failureProbability -
+            a.prediction
+              .failureProbability,
+        )
+        .map((result) => ({
+          segment:
+            result.segment,
+
+          evidence:
+            result.evidence,
+
+          features:
+            result.features,
+
+          failureContext:
+            result.failureContext,
+
+          prediction:
+            result.prediction,
+        }));
+
+    return {
+      scannedAt:
+        new Date().toISOString(),
+
+      evaluatedSegments:
+        activeSegments.length,
+
+      predictions:
+        predictions.length,
+
+      insufficientEvidence:
+        results.length -
+        predictions.length,
+
+      watchRisks,
+
+      elevatedRisks,
+    };
+  }
+
+  private sigmoid(
+    value: number,
+  ): number {
     if (value >= 0) {
-      return 1 / (1 + Math.exp(-value));
+      return (
+        1 /
+        (1 + Math.exp(-value))
+      );
     }
 
-    const expValue = Math.exp(value);
+    const expValue =
+      Math.exp(value);
 
-    return expValue / (1 + expValue);
+    return (
+      expValue /
+      (1 + expValue)
+    );
   }
 
   private getRiskLevel(
@@ -267,7 +510,8 @@ export class PredictionService {
   ): RiskLevel {
     if (
       probability >=
-      this.artifact.decisionThreshold
+      this.artifact
+        .decisionThreshold
     ) {
       return 'HIGH';
     }
@@ -279,25 +523,30 @@ export class PredictionService {
     return 'LOW';
   }
 
-  private loadModel(): ModelArtifact {
-    const modelPath = resolve(
-      process.cwd(),
-      'ml',
-      'artifacts',
-      'failure_prediction_v1.json',
-    );
+  private loadModel():
+    ModelArtifact {
+    const modelPath =
+      resolve(
+        process.cwd(),
+        'ml',
+        'artifacts',
+        'failure_prediction_v1.json',
+      );
 
-    if (!existsSync(modelPath)) {
+    if (
+      !existsSync(modelPath)
+    ) {
       throw new InternalServerErrorException(
         `No se encontró el modelo ML en ${modelPath}`,
       );
     }
 
     try {
-      const content = readFileSync(
-        modelPath,
-        'utf-8',
-      );
+      const content =
+        readFileSync(
+          modelPath,
+          'utf-8',
+        );
 
       return JSON.parse(
         content,
@@ -313,7 +562,8 @@ export class PredictionService {
     }
   }
 
-  private validateArtifact(): void {
+  private validateArtifact():
+    void {
     const {
       features,
       scaler,
@@ -321,9 +571,12 @@ export class PredictionService {
     } = this.artifact;
 
     if (
-      features.length !== scaler.mean.length ||
-      features.length !== scaler.scale.length ||
-      features.length !== model.coefficients.length
+      features.length !==
+        scaler.mean.length ||
+      features.length !==
+        scaler.scale.length ||
+      features.length !==
+        model.coefficients.length
     ) {
       throw new InternalServerErrorException(
         'El artefacto ML tiene dimensiones inconsistentes.',
@@ -331,9 +584,12 @@ export class PredictionService {
     }
 
     if (
-      !Number.isFinite(model.intercept) ||
       !Number.isFinite(
-        this.artifact.decisionThreshold,
+        model.intercept,
+      ) ||
+      !Number.isFinite(
+        this.artifact
+          .decisionThreshold,
       )
     ) {
       throw new InternalServerErrorException(
@@ -345,7 +601,10 @@ export class PredictionService {
       ...scaler.mean,
       ...scaler.scale,
       ...model.coefficients,
-    ].some((value) => !Number.isFinite(value));
+    ].some(
+      (value) =>
+        !Number.isFinite(value),
+    );
 
     if (hasInvalidNumbers) {
       throw new InternalServerErrorException(
