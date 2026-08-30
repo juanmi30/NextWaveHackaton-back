@@ -440,12 +440,14 @@ export class DetectionService {
     if (!existing) {
       // Abre la cadena de escalamiento. Solo para incidentes nuevos: un
       // diagnostico refinado sobre el mismo incidente no reinicia los relojes.
+      const routingFingerprint = alertRoutingFingerprint(fingerprint, declineReasons);
       await this.escalation.openForIncident({
         id: incidentId,
         anchorFingerprint,
         startedAt,
         detectedAt: now,
         ...metrics,
+        fingerprint: routingFingerprint,
       });
     }
 
@@ -703,6 +705,36 @@ export function incidentPersistenceDecision(
 
 export function nextDiagnosisVersion(existingCount: number) {
   return existingCount + 1;
+}
+
+export function alertRoutingFingerprint(
+  fingerprint: string,
+  declineReasons: DeclineReasonRow[],
+  concentrationThreshold = 0.6,
+) {
+  if (fingerprint.split('|').some((part) => part.startsWith('failureReason='))) {
+    return fingerprint;
+  }
+
+  const [dominant] = declineReasons;
+  if (!dominant || dominant.shareOfDeclines < concentrationThreshold) {
+    return fingerprint;
+  }
+
+  return buildSegmentKey({
+    ...Object.fromEntries(
+      fingerprint
+        .split('|')
+        .map((part) => {
+          const separator = part.indexOf('=');
+          return separator > 0
+            ? [part.slice(0, separator), part.slice(separator + 1)]
+            : null;
+        })
+        .filter((entry): entry is [string, string] => entry !== null),
+    ),
+    failureReason: dominant.code,
+  } as DimensionMap);
 }
 
 export function buildEvidenceRows(

@@ -16,9 +16,40 @@
 # - una recurrencia
 # ============================================================
 
+param(
+    [switch]$AllowNonLocalDatabase
+)
+
 $ErrorActionPreference = "Stop"
 
 $BASE = "http://localhost:3000/api"
+
+function Get-DotEnvValue {
+    param([string]$Name)
+
+    if (-not (Test-Path ".env")) {
+        return $null
+    }
+
+    $line = Get-Content ".env" |
+        Where-Object { $_ -match "^$Name=" } |
+        Select-Object -First 1
+
+    if (-not $line) {
+        return $null
+    }
+
+    return $line.Substring($Name.Length + 1).Trim('"').Trim("'")
+}
+
+$databaseUrl = Get-DotEnvValue "DATABASE_URL"
+if (
+    -not $AllowNonLocalDatabase -and
+    $databaseUrl -and
+    $databaseUrl -notmatch "(@localhost:|@127\.0\.0\.1:|@host\.docker\.internal:)"
+) {
+    throw "populate-local.ps1 hace reset destructivo. DATABASE_URL no parece local. Usa una BD local o ejecuta con -AllowNonLocalDatabase si estas completamente seguro."
+}
 
 Write-Host ""
 Write-Host "============================================"
@@ -61,6 +92,23 @@ $seed | ConvertTo-Json -Depth 10
 
 Write-Host ""
 Write-Host "Seed completado."
+Write-Host ""
+
+
+# ============================================================
+# 1B. ALERT DIRECTORY + ESCALATION POLICIES
+# ============================================================
+
+Write-Host "[1B/9] Seeding alert directory and escalation policies..."
+
+$alertsSeed = Invoke-RestMethod `
+    -Uri "$BASE/alerts/seed?resetRecipients=false" `
+    -Method Post
+
+$alertsSeed | ConvertTo-Json -Depth 10
+
+Write-Host ""
+Write-Host "Alertas listas: politicas y destinatarios cargados."
 Write-Host ""
 
 
@@ -335,6 +383,24 @@ $allIncidents = Invoke-RestMethod `
     -Method Get
 
 $allIncidents |
+    ConvertTo-Json -Depth 30
+
+
+Write-Host ""
+Write-Host "--- ALERT POLICIES ---"
+
+Invoke-RestMethod `
+    -Uri "$BASE/alerts/policies" `
+    -Method Get |
+    ConvertTo-Json -Depth 20
+
+
+Write-Host ""
+Write-Host "--- ALERT ESCALATIONS ---"
+
+Invoke-RestMethod `
+    -Uri "$BASE/alerts/escalations?limit=50" `
+    -Method Get |
     ConvertTo-Json -Depth 30
 
 
