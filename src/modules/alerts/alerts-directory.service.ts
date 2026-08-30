@@ -30,6 +30,7 @@ export class AlertsDirectoryService {
       name: dto.name,
       email: dto.email ?? null,
       phone: dto.phone ?? null,
+      telegramChatId: dto.telegramChatId ?? null,
       role: dto.role,
       merchants: dto.merchants ?? [],
       providers: dto.providers ?? [],
@@ -48,7 +49,7 @@ export class AlertsDirectoryService {
   /**
    * Carga las politicas por defecto y un equipo de ejemplo.
    *
-   * Los correos y telefonos se toman de variables de entorno para que el equipo
+   * Los correos y chats de Telegram se toman de variables de entorno para que el equipo
    * pueda recibir las alertas de verdad durante la demo sin tocar codigo.
    */
   async seed(options: { resetRecipients?: boolean } = {}) {
@@ -114,7 +115,8 @@ export class AlertsDirectoryService {
 
   private async seedRecipients() {
     const demoEmail = process.env.ALERT_EMAIL_TO?.split(',')[0]?.trim() || null;
-    const demoPhone = process.env.WHATSAPP_TO?.split(',')[0]?.trim() || null;
+    const demoTelegramChatId =
+      process.env.TELEGRAM_CHAT_ID?.split(',')[0]?.trim() || null;
 
     const team = [
       { name: 'Checkout Engineer', role: 'CHECKOUT_ENGINEER' },
@@ -131,7 +133,7 @@ export class AlertsDirectoryService {
         name: member.name,
         role: member.role as never,
         email: demoEmail,
-        phone: demoPhone,
+        telegramChatId: demoTelegramChatId,
         merchants: [],
         providers: [],
         countries: [],

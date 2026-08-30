@@ -13,7 +13,7 @@ El detector ya sabe **qué** está fallando y **por qué**. Lo que faltaba era *
 quién** avisar y **qué pasa si nadie contesta**.
 
 Antes de este trabajo, `AlertsService.notifyIncidentCreated()` mandaba el mismo
-correo y el mismo WhatsApp a una lista fija de direcciones sacadas de variables
+correo y el mismo Telegram a una lista fija de direcciones sacadas de variables
 de entorno, para cualquier incidente, sin importar la causa ni si alguien
 respondía. Eso tiene dos fallos graves para una demo de operaciones de pagos:
 
@@ -94,7 +94,7 @@ escalation.service ─── routing.ts ────────► ¿a quién l
     estados)
         │
         ├─ alerts.repository ──► Postgres
-        └─ alerts.service ─────► correo / WhatsApp
+        └─ alerts.service ─────► correo / Telegram
 ```
 
 **La separación es deliberada.** `routing.ts` y `escalation-policy.ts` son
@@ -175,7 +175,7 @@ impacto.
 
 ### 4.8 Un canal caído no congela la cadena
 
-Si SMTP o WhatsApp no están configurados, la notificación se registra como
+Si SMTP o Telegram no están configurados, la notificación se registra como
 `SKIPPED` y **el escalamiento sigue avanzando**. Durante la demo esto permite
 ver la cadena completa sin depender de un servidor de correo.
 
@@ -254,11 +254,11 @@ ALERT_APP_URL=                      # enlace al dashboard en el correo
 ALERT_DELIVERY_TIMEOUT_MS=8000
 EMAIL_ALERTS_ENABLED=true
 SMTP_HOST= SMTP_PORT=587 SMTP_SECURE=false SMTP_USER= SMTP_PASS= SMTP_FROM=
-WHATSAPP_ALERTS_ENABLED=true
-WHATSAPP_TOKEN= WHATSAPP_PHONE_NUMBER_ID= WHATSAPP_GRAPH_API_VERSION=v22.0
+TELEGRAM_ALERTS_ENABLED=true
+TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID=
 ```
 
-`ALERT_EMAIL_TO` y `WHATSAPP_TO` **ya no se usan para enviar**. Solo los lee el
+`ALERT_EMAIL_TO` y `TELEGRAM_CHAT_ID` **ya no se usan para enviar directo**. Solo los lee el
 seed para rellenar los datos de contacto del equipo de ejemplo, para que las
 alertas lleguen de verdad durante la demo sin tocar código.
 
@@ -293,7 +293,7 @@ Esto es importante para que no se dé por bueno más de lo que se probó.
   `prisma generate`, pero significa que **el compilador no está validando esas
   consultas contra el esquema real**. Es el primer sitio donde buscar si algo
   falla en runtime.
-- El envío real por SMTP y por la API de WhatsApp no se probó.
+- El envío real por SMTP y por la API de Telegram no se probó.
 
 **Primera tarea recomendada:** correr `prisma generate`, levantar la app, hacer
 el guion de demo de la sección 8 y confirmar que las consultas del repositorio

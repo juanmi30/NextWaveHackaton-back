@@ -84,20 +84,20 @@ describe('estructura de las politicas', () => {
     }
   });
 
-  it('usa email y WhatsApp como canales activos de alertas', () => {
+  it('usa email y Telegram como canales activos de alertas', () => {
     const activeChannels = new Set(
       DEFAULT_POLICIES.flatMap((policy) =>
         policy.steps.flatMap((step) => step.channels),
       ),
     );
-    expect([...activeChannels].sort()).toEqual(['EMAIL', 'WHATSAPP']);
+    expect([...activeChannels].sort()).toEqual(['EMAIL', 'TELEGRAM']);
   });
 
-  it('la politica critica emite por WhatsApp en los tres niveles', () => {
+  it('la politica critica emite por Telegram en los tres niveles', () => {
     const critical = selectPolicy(4);
     for (const step of critical.steps) {
       expect(step.channels).toContain('EMAIL');
-      expect(step.channels).toContain('WHATSAPP');
+      expect(step.channels).toContain('TELEGRAM');
     }
   });
 });

@@ -1,6 +1,6 @@
 import type { RecipientRole } from './routing.js';
 
-export const NOTIFICATION_CHANNELS = ['EMAIL', 'WHATSAPP'] as const;
+export const NOTIFICATION_CHANNELS = ['EMAIL', 'TELEGRAM'] as const;
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 
 export type EscalationStepDefinition = {
@@ -43,7 +43,7 @@ export const DEFAULT_POLICIES: EscalationPolicyDefinition[] = [
         waitMinutes: 0,
         roles: ['PAYMENTS_OPS'],
         includeSpecialists: true,
-        channels: ['EMAIL', 'WHATSAPP'],
+        channels: ['EMAIL', 'TELEGRAM'],
         label: 'Especialista competente y guardia de operaciones',
       },
       {
@@ -51,7 +51,7 @@ export const DEFAULT_POLICIES: EscalationPolicyDefinition[] = [
         waitMinutes: 5,
         roles: ['ADMIN'],
         includeSpecialists: true,
-        channels: ['EMAIL', 'WHATSAPP'],
+        channels: ['EMAIL', 'TELEGRAM'],
         label: 'Sin acuse en 5 min: entra administracion',
       },
       {
@@ -67,7 +67,7 @@ export const DEFAULT_POLICIES: EscalationPolicyDefinition[] = [
           'MERCHANT_SUCCESS',
         ],
         includeSpecialists: true,
-        channels: ['EMAIL', 'WHATSAPP'],
+        channels: ['EMAIL', 'TELEGRAM'],
         label: 'Sin acuse en 15 min: aviso a todo el equipo',
       },
     ],
@@ -84,7 +84,7 @@ export const DEFAULT_POLICIES: EscalationPolicyDefinition[] = [
         waitMinutes: 0,
         roles: [],
         includeSpecialists: true,
-        channels: ['EMAIL', 'WHATSAPP'],
+        channels: ['EMAIL', 'TELEGRAM'],
         label: 'Especialista competente',
       },
       {
@@ -92,7 +92,7 @@ export const DEFAULT_POLICIES: EscalationPolicyDefinition[] = [
         waitMinutes: 10,
         roles: ['PAYMENTS_OPS'],
         includeSpecialists: true,
-        channels: ['EMAIL', 'WHATSAPP'],
+        channels: ['EMAIL', 'TELEGRAM'],
         label: 'Sin acuse en 10 min: guardia de operaciones',
       },
       {

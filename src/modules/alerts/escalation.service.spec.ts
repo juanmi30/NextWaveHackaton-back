@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { EscalationService } from './escalation.service.js';
 import { DEFAULT_POLICIES } from './escalation-policy.js';
-import type { AlertsRepository, EscalationPolicyRow, RecipientRow } from './alerts.repository.js';
+import type {
+  AlertsRepository,
+  EscalationPolicyRow,
+  RecipientRow,
+} from './alerts.repository.js';
 import type { AlertsService } from './alerts.service.js';
 
 const T0 = new Date('2026-08-29T18:00:00.000Z');
@@ -27,14 +31,33 @@ function policyRows(): EscalationPolicyRow[] {
 }
 
 function team(): RecipientRow[] {
-  const base = { email: 'x@y.z', phone: '+100', active: true, merchants: [], providers: [], countries: [] };
+  const base = {
+    email: 'x@y.z',
+    phone: '+100',
+    telegramChatId: '100',
+    active: true,
+    merchants: [],
+    providers: [],
+    countries: [],
+  };
   return [
     { id: 'r-checkout', name: 'Checkout', role: 'CHECKOUT_ENGINEER', ...base },
-    { id: 'r-integr', name: 'Integraciones', role: 'INTEGRATIONS_ENGINEER', ...base },
+    {
+      id: 'r-integr',
+      name: 'Integraciones',
+      role: 'INTEGRATIONS_ENGINEER',
+      ...base,
+    },
     { id: 'r-risk', name: 'Riesgo', role: 'RISK_ANALYST', ...base },
     { id: 'r-ops', name: 'Guardia', role: 'PAYMENTS_OPS', ...base },
     { id: 'r-admin', name: 'Admin', role: 'ADMIN', ...base },
-    { id: 'r-ops-br', name: 'Guardia Brasil', role: 'PAYMENTS_OPS', ...base, countries: ['BR'] },
+    {
+      id: 'r-ops-br',
+      name: 'Guardia Brasil',
+      role: 'PAYMENTS_OPS',
+      ...base,
+      countries: ['BR'],
+    },
   ] as RecipientRow[];
 }
 
@@ -67,9 +90,14 @@ function harness(incidentOverrides: Record<string, unknown> = {}) {
 
   const repository = {
     findEscalationByIncident: async (incidentId: string) => {
-      const found = [...escalations.values()].find((e) => e.incidentId === incidentId);
+      const found = [...escalations.values()].find(
+        (e) => e.incidentId === incidentId,
+      );
       if (!found) return null;
-      return { ...found, policy: policies.find((p) => p.id === found.policyId) };
+      return {
+        ...found,
+        policy: policies.find((p) => p.id === found.policyId),
+      };
     },
     createEscalation: async (data: Record<string, unknown>) => {
       const row = { id: `esc-${escalations.size + 1}`, ...data };
@@ -89,7 +117,10 @@ function harness(incidentOverrides: Record<string, unknown> = {}) {
             e.nextEscalationAt instanceof Date &&
             (e.nextEscalationAt as Date) <= now,
         )
-        .map((e) => ({ ...e, policy: policies.find((p) => p.id === e.policyId) })),
+        .map((e) => ({
+          ...e,
+          policy: policies.find((p) => p.id === e.policyId),
+        })),
     findRecipientsByRoles: async (roles: string[]) =>
       recipients.filter((r) => roles.includes(r.role)),
     listRecipients: async () => recipients,
@@ -105,7 +136,9 @@ function harness(incidentOverrides: Record<string, unknown> = {}) {
     },
     findIncidentForAlert: async () => incident,
     findPolicyForSeverity: async (severity: number) =>
-      policies.find((p) => severity >= p.minSeverity && severity <= p.maxSeverity) ?? null,
+      policies.find(
+        (p) => severity >= p.minSeverity && severity <= p.maxSeverity,
+      ) ?? null,
   } as unknown as AlertsRepository;
 
   const alerts = {
@@ -184,7 +217,9 @@ describe('EscalationService', () => {
   it('respeta el alcance geografico de cada persona', async () => {
     await h.service.openForIncident(h.incident as never, T0);
     // El incidente es de MX; la guardia de Brasil no debe recibirlo.
-    expect(h.notifications.some((n) => n.recipientId === 'r-ops-br')).toBe(false);
+    expect(h.notifications.some((n) => n.recipientId === 'r-ops-br')).toBe(
+      false,
+    );
     expect(h.notifications.some((n) => n.recipientId === 'r-ops')).toBe(true);
   });
 
@@ -208,9 +243,14 @@ describe('EscalationService', () => {
   });
 
   it('preview no dispara notificaciones', async () => {
-    const result = await h.service.preview('country=MX|failureReason=INVALID_CREDENTIALS', 4);
+    const result = await h.service.preview(
+      'country=MX|failureReason=INVALID_CREDENTIALS',
+      4,
+    );
     expect(h.notifications).toHaveLength(0);
     expect(result.routing.category).toBe('PROVIDER_CONFIGURATION');
-    expect(result.levels[0]?.recipients.map((r) => r.role)).toContain('INTEGRATIONS_ENGINEER');
+    expect(result.levels[0]?.recipients.map((r) => r.role)).toContain(
+      'INTEGRATIONS_ENGINEER',
+    );
   });
 });

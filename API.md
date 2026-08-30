@@ -84,7 +84,7 @@ evaluar el trafico contra historico responde `INSUFFICIENT_EVIDENCE` y agrega
 `evidenceReason`; `NO_ANOMALY` implica que al menos un slice si fue evaluado.
 
 Cuando una corrida crea un incidente nuevo, el backend intenta enviar alertas
-por correo y WhatsApp si los canales estan configurados en variables de entorno.
+por correo y Telegram si los canales estan configurados en variables de entorno.
 La deteccion no falla si un canal externo no esta disponible.
 
 ### Incidentes
@@ -122,9 +122,8 @@ Todas las politicas por defecto tienen tres niveles. Para severidad baja/media
 tambien detiene la cadena de escalamiento.
 
 Variables de entrega: `EMAIL_ALERTS_ENABLED`, `SMTP_*`, `ALERT_EMAIL_TO`,
-`WHATSAPP_ALERTS_ENABLED`, `WHATSAPP_TO`, `WHATSAPP_GRAPH_API_VERSION`,
-`WHATSAPP_TOKEN` y `WHATSAPP_PHONE_NUMBER_ID`. Si falta SMTP o WhatsApp, la
-notificacion queda como `SKIPPED` y el escalamiento sigue.
+`TELEGRAM_ALERTS_ENABLED`, `TELEGRAM_BOT_TOKEN` y `TELEGRAM_CHAT_ID`. Si falta
+SMTP o Telegram, la notificacion queda como `SKIPPED` y el escalamiento sigue.
 
 ### Analitica
 

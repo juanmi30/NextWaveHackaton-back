@@ -1,4 +1,12 @@
-import { ArrayMaxSize, IsArray, IsEmail, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsEmail,
+  IsIn,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 import { RECIPIENT_ROLES, type RecipientRole } from '../routing.js';
 
 export class CreateRecipientDto {
@@ -13,6 +21,10 @@ export class CreateRecipientDto {
   @IsOptional()
   @IsString()
   phone?: string;
+
+  @IsOptional()
+  @IsString()
+  telegramChatId?: string;
 
   @IsIn(RECIPIENT_ROLES)
   role: RecipientRole;

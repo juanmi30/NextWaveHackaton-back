@@ -27,6 +27,7 @@ export type RecipientRow = {
   name: string;
   email: string | null;
   phone: string | null;
+  telegramChatId: string | null;
   role: RecipientRole;
   merchants: string[];
   providers: string[];
@@ -130,6 +131,7 @@ export class AlertsRepository {
     name: string;
     email?: string | null;
     phone?: string | null;
+    telegramChatId?: string | null;
     role: RecipientRole;
     merchants?: string[];
     providers?: string[];
@@ -139,7 +141,10 @@ export class AlertsRepository {
   }
 
   deactivateRecipient(id: string) {
-    return this.prisma.recipient.update({ where: { id }, data: { active: false } });
+    return this.prisma.recipient.update({
+      where: { id },
+      data: { active: false },
+    });
   }
 
   // --- Politicas ---
@@ -165,7 +170,10 @@ export class AlertsRepository {
       where: { incidentId },
       include: {
         policy: { include: { steps: { orderBy: { level: 'asc' } } } },
-        notifications: { orderBy: { sentAt: 'asc' }, include: { recipient: true } },
+        notifications: {
+          orderBy: { sentAt: 'asc' },
+          include: { recipient: true },
+        },
         acknowledgedBy: true,
       },
     });
@@ -184,7 +192,9 @@ export class AlertsRepository {
   findDue(now: Date) {
     return this.prisma.incidentEscalation.findMany({
       where: { status: 'PENDING', nextEscalationAt: { lte: now } },
-      include: { policy: { include: { steps: { orderBy: { level: 'asc' } } } } },
+      include: {
+        policy: { include: { steps: { orderBy: { level: 'asc' } } } },
+      },
       orderBy: { nextEscalationAt: 'asc' },
     });
   }
@@ -194,7 +204,10 @@ export class AlertsRepository {
   }
 
   updateEscalation(id: string, data: Record<string, unknown>) {
-    return this.prisma.incidentEscalation.update({ where: { id }, data: data as never });
+    return this.prisma.incidentEscalation.update({
+      where: { id },
+      data: data as never,
+    });
   }
 
   recordNotification(data: Record<string, unknown>) {

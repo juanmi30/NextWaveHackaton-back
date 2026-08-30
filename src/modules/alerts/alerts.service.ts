@@ -57,7 +57,7 @@ export class AlertsService {
   ): Promise<DeliveryResult> {
     try {
       if (channel === 'EMAIL') return await this.sendEmail(target, message);
-      return await this.sendWhatsapp(target, message);
+      return await this.sendTelegram(target, message);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       this.logger.warn(
@@ -120,27 +120,24 @@ export class AlertsService {
     return { status: 'SENT' };
   }
 
-  private async sendWhatsapp(
-    to: string,
+  private async sendTelegram(
+    chatId: string,
     message: AlertMessage,
   ): Promise<DeliveryResult> {
-    if (this.config.get<string>('WHATSAPP_ALERTS_ENABLED') === 'false') {
-      return { status: 'SKIPPED', error: 'WHATSAPP_ALERTS_ENABLED=false' };
+    if (this.config.get<string>('TELEGRAM_ALERTS_ENABLED') === 'false') {
+      return { status: 'SKIPPED', error: 'TELEGRAM_ALERTS_ENABLED=false' };
     }
 
-    const token = this.config.get<string>('WHATSAPP_TOKEN')?.trim();
-    const phoneNumberId = this.config
-      .get<string>('WHATSAPP_PHONE_NUMBER_ID')
-      ?.trim();
+    const token = this.config.get<string>('TELEGRAM_BOT_TOKEN')?.trim();
 
-    if (!token || !phoneNumberId) {
-      this.logger.log(`[SIN WHATSAPP] Mensaje para ${to}: ${message.subject}`);
-      return { status: 'SKIPPED', error: 'WhatsApp sin configurar' };
+    if (!token) {
+      this.logger.log(
+        `[SIN TELEGRAM] Mensaje para ${chatId}: ${message.subject}`,
+      );
+      return { status: 'SKIPPED', error: 'Telegram sin configurar' };
     }
 
-    const version =
-      this.config.get<string>('WHATSAPP_GRAPH_API_VERSION')?.trim() || 'v22.0';
-    const url = `https://graph.facebook.com/${version}/${phoneNumberId}/messages`;
+    const url = `https://api.telegram.org/bot${token}/sendMessage`;
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs());
@@ -151,14 +148,11 @@ export class AlertsService {
         method: 'POST',
         signal: controller.signal,
         headers: {
-          Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          messaging_product: 'whatsapp',
-          to,
-          type: 'text',
-          text: { preview_url: false, body: message.text },
+          chat_id: chatId,
+          text: message.text.slice(0, 4096),
         }),
       });
     } finally {
@@ -168,11 +162,11 @@ export class AlertsService {
     if (!response.ok) {
       const body = await response.text();
       throw new Error(
-        `WhatsApp API respondio ${response.status}: ${body.slice(0, 300)}`,
+        `Telegram API respondio ${response.status}: ${body.slice(0, 300)}`,
       );
     }
 
-    this.logger.log(`Alerta por WhatsApp enviada a ${to}`);
+    this.logger.log(`Alerta por Telegram enviada a ${chatId}`);
     return { status: 'SENT' };
   }
 

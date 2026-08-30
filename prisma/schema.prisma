@@ -81,11 +81,11 @@ model Transaction {
 }
 
 model FxRate {
-  id          String   @id @default(cuid())
-  currency    String
-  rateDate    DateTime @db.Date
-  usdPerUnit  Decimal  @db.Decimal(18, 8)
-  source      String?
+  id         String   @id @default(cuid())
+  currency   String
+  rateDate   DateTime @db.Date
+  usdPerUnit Decimal  @db.Decimal(18, 8)
+  source     String?
 
   transactions Transaction[]
 
@@ -132,8 +132,8 @@ model DetectionRun {
   durationMs      Int?
   finishedAt      DateTime         @default(now()) @db.Timestamptz(3)
 
-  incidents   Incident[]
-  diagnoses   IncidentDiagnosis[]
+  incidents Incident[]
+  diagnoses IncidentDiagnosis[]
 
   @@index([finishedAt])
   @@index([outcome, finishedAt])
@@ -186,10 +186,10 @@ model IncidentDiagnosis {
   detectionRunId String
   detectionRun   DetectionRun @relation(fields: [detectionRunId], references: [id])
 
-  version         Int
-  fingerprint     String
-  dimensions      Json
-  dimensionDepth  Int
+  version        Int
+  fingerprint    String
+  dimensions     Json
+  dimensionDepth Int
 
   baselineRate     Float
   observedRate     Float
@@ -241,7 +241,7 @@ enum RecipientRole {
 
 enum NotificationChannel {
   EMAIL
-  WHATSAPP
+  TELEGRAM
 }
 
 enum EscalationStatus {
@@ -258,11 +258,12 @@ enum NotificationStatus {
 }
 
 model Recipient {
-  id    String        @id @default(cuid())
-  name  String
-  email String?
-  phone String?
-  role  RecipientRole
+  id             String        @id @default(cuid())
+  name           String
+  email          String?
+  phone          String?
+  telegramChatId String?
+  role           RecipientRole
 
   // Alcance de responsabilidad. Un arreglo vacio significa "cubre todo".
   merchants String[] @default([])
@@ -272,7 +273,7 @@ model Recipient {
   active    Boolean  @default(true)
   createdAt DateTime @default(now()) @db.Timestamptz(3)
 
-  notifications  AlertNotification[]
+  notifications           AlertNotification[]
   acknowledgedEscalations IncidentEscalation[] @relation("AcknowledgedBy")
 
   @@index([role, active])

@@ -250,7 +250,7 @@ export class EscalationService {
             role: recipient.role,
             channel,
             status: 'SKIPPED',
-            error: `El destinatario no tiene ${channel === 'EMAIL' ? 'correo' : 'telefono'}`,
+            error: `El destinatario no tiene ${channel === 'EMAIL' ? 'correo' : 'chat de Telegram'}`,
           });
           continue;
         }
@@ -344,7 +344,7 @@ function channelTarget(
   channel: NotificationChannel,
 ): string | null {
   if (channel === 'EMAIL') return recipient.email;
-  return recipient.phone;
+  return recipient.telegramChatId;
 }
 
 function describeRouting(

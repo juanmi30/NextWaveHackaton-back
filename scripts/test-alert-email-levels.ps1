@@ -2,8 +2,8 @@ param(
     [string]$BaseUrl = "http://localhost:3000/api",
     [string]$IncidentId = "",
     [string]$TargetEmail = "",
-    [string]$TargetPhone = "",
-    [ValidateSet("EMAIL", "WHATSAPP")]
+    [string]$TargetTelegramChatId = "",
+    [ValidateSet("EMAIL", "TELEGRAM")]
     [string]$Channel = "EMAIL",
     [switch]$ResetDemoData,
     [switch]$AllowNonLocalDatabase
@@ -98,10 +98,10 @@ function Print-EscalationSnapshot {
 function Ensure-TestRecipients {
     param(
         [string]$Email,
-        [string]$Phone
+        [string]$TelegramChatId
     )
 
-    if (-not $Email -and -not $Phone) {
+    if (-not $Email -and -not $TelegramChatId) {
         return
     }
 
@@ -121,8 +121,8 @@ function Ensure-TestRecipients {
             $body.email = $Email
         }
 
-        if ($Phone) {
-            $body.phone = $Phone
+        if ($TelegramChatId) {
+            $body.telegramChatId = $TelegramChatId
         }
 
         Post-Json `
@@ -202,7 +202,7 @@ if ($ResetDemoData) {
 Post-Json "$BaseUrl/alerts/seed?resetRecipients=false" @{} |
     ConvertTo-Json -Depth 20
 
-Ensure-TestRecipients $TargetEmail $TargetPhone
+Ensure-TestRecipients $TargetEmail $TargetTelegramChatId
 
 Write-Host ""
 Write-Host "[3/6] Preview del flujo de 3 niveles..."
