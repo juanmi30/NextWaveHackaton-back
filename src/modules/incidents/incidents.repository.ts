@@ -76,6 +76,24 @@ export class IncidentsRepository {
     });
   }
 
+  /** Una sola lectura para resolver identidad entre refinamientos sin N+1. */
+  findActiveWithLatestDiagnosis() {
+    return this.prisma.incident.findMany({
+      where: { status: { in: ['OPEN', 'ACKNOWLEDGED'] } },
+      select: {
+        id: true,
+        anchorFingerprint: true,
+        fingerprint: true,
+        startedAt: true,
+        diagnoses: {
+          orderBy: { version: 'desc' },
+          take: 1,
+          select: { dimensions: true },
+        },
+      },
+    });
+  }
+
   findActive() {
     return this.prisma.incident.findMany({
       where: { status: { in: ['OPEN', 'ACKNOWLEDGED'] } },

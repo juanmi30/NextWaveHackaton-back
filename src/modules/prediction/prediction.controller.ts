@@ -8,7 +8,6 @@ import {
 import { EvaluatePredictionDto } from './dto/evaluate-prediction.dto.js';
 import {
   PredictionService,
-  type PredictionResult,
   type PredictionScanResult,
   type SegmentPredictionResult,
 } from './prediction.service.js';

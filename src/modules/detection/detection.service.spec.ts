@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { DimensionMap } from '../../common/dimensions.js';
 import type { BaselineLookup } from '../baselines/baselines.service.js';
 import {
   anchorFor,
   baselineConfidenceFactor,
+  bestEffort,
   buildEvidenceRows,
   conflicts,
   detectionOutcome,
@@ -12,6 +13,7 @@ import {
   incidentPersistenceDecision,
   nextDiagnosisVersion,
   prune,
+  resolveExistingIncident,
   stableFamilyAnchor,
   type Candidate,
 } from './detection.service.js';
@@ -189,6 +191,145 @@ describe('incident persistence and evidence', () => {
         expect.objectContaining({ dimension: 'controlSibling', dimensionValue: control.segmentKey }),
       ]),
     );
+  });
+});
+
+describe('stable incident identity across refinement', () => {
+  function lineage(
+    id: string,
+    dimensions: DimensionMap,
+    anchor = candidate(dimensions).segmentKey,
+  ) {
+    return {
+      id,
+      anchorFingerprint: anchor,
+      fingerprint: candidate(dimensions).segmentKey,
+      startedAt: new Date('2026-08-29T12:00:00Z'),
+      diagnoses: [{ dimensions }],
+    };
+  }
+
+  function resolve(current: DimensionMap, active: ReturnType<typeof lineage>[]) {
+    const winner = candidate(current);
+    return resolveExistingIncident({
+      proposedAnchor: winner.segmentKey,
+      winner,
+      family: [winner],
+      activeIncidents: active,
+    });
+  }
+
+  it('reuses broad identity for a normal narrow refinement and preserves its anchor', () => {
+    const broad = lineage('X', { provider: 'Adyen', country: 'BR' });
+    const existing = resolve(
+      { provider: 'Adyen', country: 'BR', issuingBank: 'Bradesco' },
+      [broad],
+    );
+    expect(existing).toMatchObject({ id: 'X', anchorFingerprint: broad.anchorFingerprint });
+    expect(
+      incidentPersistenceDecision(existing, 'country=BR|issuingBank=Bradesco|provider=Adyen'),
+    ).toMatchObject({ incidentId: 'X', isNew: false, refined: true });
+  });
+
+  it('keeps alert escalation best-effort when the provider throws', async () => {
+    const warn = vi.fn();
+    await expect(bestEffort(
+      () => Promise.reject(new Error('SMTP unavailable')),
+      warn,
+    )).resolves.toBe(false);
+    expect(warn).toHaveBeenCalledWith(expect.objectContaining({ message: 'SMTP unavailable' }));
+  });
+
+  it('deduplicates redundant evidence by dimension, value and root-cause role', () => {
+    const winner = candidate({ provider: 'Adyen', country: 'BR' });
+    const duplicateA = candidate({ provider: 'Adyen' }, 0.5);
+    const duplicateB = candidate({ provider: 'Adyen' }, 0.9);
+    duplicateB.attempts = 200;
+    const rows = buildEvidenceRows(winner, [winner, duplicateA, duplicateB]);
+    const providerRows = rows.filter(
+      (row) => row.dimension === 'provider' && row.dimensionValue === 'Adyen' && row.isRootCause,
+    );
+    expect(providerRows).toHaveLength(1);
+    expect(providerRows[0]).toMatchObject({ confidence: 0.9, attempts: 200 });
+  });
+
+  it('marks only the broad creation as new so refinement cannot open another escalation', () => {
+    const created = incidentPersistenceDecision(null, 'country=BR|provider=Adyen');
+    const refined = incidentPersistenceDecision(
+      { id: 'X', fingerprint: 'country=BR|provider=Adyen' },
+      'country=BR|issuingBank=Bradesco|provider=Adyen',
+    );
+    expect(created.isNew).toBe(true);
+    expect(refined).toMatchObject({ incidentId: 'X', isNew: false, refined: true });
+  });
+
+  it('reuses a narrow incident when diagnosis temporarily becomes broader', () => {
+    expect(resolve(
+      { provider: 'Adyen', country: 'BR' },
+      [lineage('X', { provider: 'Adyen', country: 'BR', issuingBank: 'Bradesco' },
+        'country=BR|provider=Adyen')],
+    )?.id).toBe('X');
+  });
+
+  it('keeps one identity through successive CARD and bank refinements', () => {
+    const active = [lineage('X', { provider: 'Adyen', country: 'BR' })];
+    expect(resolve({ provider: 'Adyen', country: 'BR', method: 'CARD' }, active)?.id).toBe('X');
+    active[0]!.fingerprint = 'country=BR|method=CARD|provider=Adyen';
+    active[0]!.diagnoses = [{ dimensions: { provider: 'Adyen', country: 'BR', method: 'CARD' } }];
+    expect(resolve({ provider: 'Adyen', country: 'BR', method: 'CARD', issuingBank: 'Bradesco' }, active)?.id)
+      .toBe('X');
+  });
+
+  it.each([
+    [
+      { provider: 'Stripe', country: 'BR' },
+      [lineage('A', { provider: 'Adyen', country: 'BR' })],
+    ],
+    [
+      { provider: 'Adyen', country: 'MX' },
+      [lineage('A', { provider: 'Adyen', country: 'BR' })],
+    ],
+    [
+      { merchant: 'Merchant1', issuingBank: 'BankB' },
+      [lineage('A', { merchant: 'Merchant1', issuingBank: 'BankA' })],
+    ],
+  ])('does not merge independent anomaly families', (current, active) => {
+    expect(resolve(current, active)).toBeNull();
+  });
+
+  it('does not choose arbitrarily when lineage matching is ambiguous', () => {
+    const active = [
+      lineage('A', { provider: 'Adyen', country: 'BR' }),
+      lineage('B', { provider: 'Adyen', country: 'BR', method: 'CARD' }, 'method=CARD|provider=Adyen'),
+    ];
+    expect(resolve(
+      { provider: 'Adyen', country: 'BR', method: 'CARD', issuingBank: 'Bradesco' },
+      active,
+    )).toBeNull();
+  });
+
+  it('does not use a single broad dimension as cross-run lineage evidence', () => {
+    expect(resolve(
+      { provider: 'Adyen', country: 'BR' },
+      [lineage('country-wide', { country: 'BR' })],
+    )).toBeNull();
+  });
+
+  it('uses the original parent identity for an unseen child', () => {
+    const active = [lineage('X', { merchant: 'Mercado Uno', provider: 'Adyen' })];
+    expect(resolve(
+      { merchant: 'Mercado Uno', provider: 'Adyen', issuingBank: 'BancoJudgeUnseen' },
+      active,
+    )?.id).toBe('X');
+  });
+
+  it('selects a stable normal ancestor inside the current family', () => {
+    const broad = candidate({ provider: 'Adyen', country: 'BR' });
+    const card = candidate({ provider: 'Adyen', country: 'BR', method: 'CARD' });
+    const bank = candidate({
+      provider: 'Adyen', country: 'BR', method: 'CARD', issuingBank: 'Bradesco',
+    });
+    expect(stableFamilyAnchor([broad, card, bank], bank)).toBe(card.segmentKey);
   });
 });
 
