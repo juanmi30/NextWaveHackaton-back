@@ -2,13 +2,14 @@ import { Injectable, Logger } from '@nestjs/common';
 import { FxService } from '../fx/fx.service.js';
 import { TransactionsService } from '../transactions/transactions.service.js';
 import { TransactionsRepository } from '../transactions/transactions.repository.js';
-import { IncidentsRepository } from '../incidents/incidents.repository.js';
 import { BaselinesService } from '../baselines/baselines.service.js';
 import type { CreateTransactionDto, PaymentStatusValue } from '../transactions/dto/create-transaction.dto.js';
 import type { InjectIncidentDto } from './dto/inject-incident.dto.js';
 import type { InjectPredictiveRiskDto } from './dto/inject-predictive-risk.dto.js';
-import { DetectionRepository } from '../detection/detection.repository.js';
 import { DetectionService } from '../detection/detection.service.js';
+import { localHourMinute } from '../../common/local-time.js';
+import { resolveRouteTimeZone } from '../../common/route-timezone.js';
+import { PrismaService } from '../../prisma/prisma.service.js';
 
 type Route = {
   merchant: string;
@@ -19,6 +20,14 @@ type Route = {
   currency: string;
   approval: number;
   weight: number;
+  minAmountCents: number;
+  maxAmountCents: number;
+  baseLatencyMs: number;
+  latencyJitterMs: number;
+  declineCodes: string[];
+  errorCodes?: string[];
+  timeoutShare?: number;
+  errorShare?: number;
 };
 
 type PredictiveProfile = {
@@ -28,22 +37,49 @@ type PredictiveProfile = {
   baseLatencyMs: number;
 };
 
-/** PagoTotal: 3 comercios, 3 proveedores, 3 paises. Datos inventados. */
+/**
+ * Portafolio sintetico de comercios LATAM. Los nombres son ficticios, pero las
+ * combinaciones de metodos, monedas, bancos, tickets y proveedores representan
+ * patrones habituales de e-commerce, travel, delivery y suscripciones.
+ */
 const ROUTES: Route[] = [
-  { merchant: 'PagoTotal Retail', provider: 'Stripe',       method: 'CARD', country: 'MX', issuingBank: 'BBVA',        currency: 'MXN', approval: 0.93, weight: 3 },
-  { merchant: 'PagoTotal Retail', provider: 'dLocal',       method: 'CARD', country: 'MX', issuingBank: 'Banorte',     currency: 'MXN', approval: 0.91, weight: 2 },
-  { merchant: 'PagoTotal Retail', provider: 'MercadoPago',  method: 'CASH', country: 'MX', issuingBank: 'OXXO',        currency: 'MXN', approval: 0.88, weight: 1 },
-  { merchant: 'Nova Travel',      provider: 'dLocal',       method: 'CARD', country: 'CO', issuingBank: 'Bancolombia', currency: 'COP', approval: 0.90, weight: 3 },
-  { merchant: 'Nova Travel',      provider: 'Stripe',       method: 'PSE',  country: 'CO', issuingBank: 'Davivienda',  currency: 'COP', approval: 0.92, weight: 2 },
-  { merchant: 'Mercado Uno',      provider: 'dLocal',       method: 'PIX',  country: 'BR', issuingBank: 'Itau',        currency: 'BRL', approval: 0.94, weight: 3 },
-  { merchant: 'Mercado Uno',      provider: 'Adyen',        method: 'CARD', country: 'BR', issuingBank: 'Bradesco',    currency: 'BRL', approval: 0.91, weight: 2 },
-  { merchant: 'Mercado Uno',      provider: 'Adyen',        method: 'CARD', country: 'BR', issuingBank: 'Itau',        currency: 'BRL', approval: 0.90, weight: 2 },
-  { merchant: 'Mercado Uno',      provider: 'Adyen',        method: 'CARD', country: 'BR', issuingBank: 'Nubank',      currency: 'BRL', approval: 0.89, weight: 2 },
-  { merchant: 'Mercado Uno',      provider: 'Adyen',        method: 'PIX',  country: 'BR', issuingBank: 'Itau',        currency: 'BRL', approval: 0.92, weight: 2 },
-  { merchant: 'Mercado Uno',      provider: 'Adyen',        method: 'WALLET', country: 'BR', issuingBank: 'Nubank',    currency: 'BRL', approval: 0.89, weight: 1 },
+  route('PagoTotal Retail', 'Stripe', 'CARD', 'MX', 'BBVA', 'MXN', 0.93, 3, 25_000, 450_000, 320, 650,
+    ['DO_NOT_HONOR', 'INSUFFICIENT_FUNDS', 'EXPIRED_CARD', 'INVALID_SECURITY_CODE']),
+  route('PagoTotal Retail', 'dLocal', 'CARD', 'MX', 'Banorte', 'MXN', 0.91, 2, 18_000, 380_000, 480, 800,
+    ['DECLINED_BY_BANK', 'INSUFFICIENT_FUNDS', 'RESTRICTED_BY_BANK', 'INVALID_CARD_DATA']),
+  route('PagoTotal Retail', 'MercadoPago', 'CASH', 'MX', 'OXXO', 'MXN', 0.88, 1, 12_000, 220_000, 700, 1_100,
+    ['EXPIRED', 'CANCELLED_BY_USER', 'INVALID_AMOUNT'], ['PROVIDER_ERROR'], 0.04, 0.04),
+  route('Nova Travel', 'dLocal', 'CARD', 'CO', 'Bancolombia', 'COP', 0.90, 3, 6_000_000, 180_000_000, 520, 1_000,
+    ['DO_NOT_HONOR', 'INSUFFICIENT_FUNDS', 'DECLINED_BY_BANK', 'THREE_D_SECURE_REQUIRED']),
+  route('Nova Travel', 'Stripe', 'PSE', 'CO', 'Davivienda', 'COP', 0.92, 2, 5_000_000, 120_000_000, 650, 1_250,
+    ['DECLINED_BY_BANK', 'CANCELLED_BY_USER', 'BANK_NOT_SUPPORTED']),
+  route('Nova Travel', 'Adyen', 'CARD', 'MX', 'Santander', 'MXN', 0.89, 1, 90_000, 1_200_000, 610, 1_050,
+    ['DO_NOT_HONOR', 'CALL_FOR_AUTHORIZE', 'THREE_D_SECURE_REQUIRED', 'RESTRICTED_BY_BANK']),
+  route('Mercado Uno', 'dLocal', 'PIX', 'BR', 'Itau', 'BRL', 0.95, 3, 2_500, 90_000, 260, 500,
+    ['DECLINED_BY_BANK', 'INVALID_AMOUNT', 'CANCELLED_BY_USER']),
+  route('Mercado Uno', 'Adyen', 'CARD', 'BR', 'Bradesco', 'BRL', 0.91, 2, 4_000, 180_000, 390, 700,
+    ['DO_NOT_HONOR', 'INSUFFICIENT_FUNDS', 'EXPIRED_CARD', 'FRAUD_VALIDATION']),
+  route('Mercado Uno', 'Adyen', 'CARD', 'BR', 'Itau', 'BRL', 0.90, 2, 4_000, 180_000, 370, 720,
+    ['DO_NOT_HONOR', 'INSUFFICIENT_FUNDS', 'RESTRICTED_BY_BANK', 'INVALID_SECURITY_CODE']),
+  route('Mercado Uno', 'Adyen', 'CARD', 'BR', 'Nubank', 'BRL', 0.89, 2, 3_500, 160_000, 350, 680,
+    ['DO_NOT_HONOR', 'INSUFFICIENT_FUNDS', 'FRAUD_VALIDATION', 'THREE_D_SECURE_REQUIRED']),
+  route('Mercado Uno', 'Adyen', 'PIX', 'BR', 'Itau', 'BRL', 0.93, 2, 2_000, 85_000, 240, 480,
+    ['DECLINED_BY_BANK', 'INVALID_AMOUNT', 'DUPLICATED_TRANSACTION']),
+  route('Mercado Uno', 'MercadoPago', 'WALLET', 'BR', 'Nubank', 'BRL', 0.90, 1, 1_500, 65_000, 300, 600,
+    ['USER_RESTRICTION', 'INSUFFICIENT_FUNDS', 'CANCELLED_BY_USER']),
+  route('Flash Delivery', 'PayU', 'CARD', 'CO', 'Banco de Bogota', 'COP', 0.87, 2, 1_800_000, 15_000_000, 430, 750,
+    ['INSUFFICIENT_FUNDS', 'DO_NOT_HONOR', 'INVALID_CARD_DATA', 'FRAUD_VALIDATION']),
+  route('Flash Delivery', 'dLocal', 'PSE', 'CO', 'Nequi', 'COP', 0.94, 2, 1_200_000, 12_000_000, 580, 900,
+    ['DECLINED_BY_BANK', 'CANCELLED_BY_USER', 'INVALID_AMOUNT']),
+  route('StreamPlus', 'Stripe', 'CARD', 'MX', 'Citibanamex', 'MXN', 0.86, 2, 9_900, 29_900, 280, 520,
+    ['INSUFFICIENT_FUNDS', 'EXPIRED_CARD', 'DO_NOT_HONOR', 'NO_RETRY_LIFE_CYCLE']),
+  route('StreamPlus', 'Adyen', 'CARD', 'BR', 'Nubank', 'BRL', 0.88, 2, 1_990, 7_990, 300, 540,
+    ['INSUFFICIENT_FUNDS', 'EXPIRED_CARD', 'DO_NOT_HONOR', 'NO_RETRY_POLICY']),
+  route('Arena Gaming', 'EBANX', 'PIX', 'BR', 'Banco do Brasil', 'BRL', 0.92, 1, 1_000, 35_000, 460, 850,
+    ['DECLINED_BY_BANK', 'USER_RESTRICTION', 'DUPLICATED_TRANSACTION']),
+  route('Arena Gaming', 'PayU', 'CARD', 'CO', 'Daviplata', 'COP', 0.84, 1, 900_000, 25_000_000, 510, 900,
+    ['DO_NOT_HONOR', 'INSUFFICIENT_FUNDS', 'FRAUD_VALIDATION', 'INVALID_SECURITY_CODE']),
 ];
-
-const DECLINE_CODES = ['DO_NOT_HONOR', 'INSUFFICIENT_FUNDS', 'EXPIRED_CARD', 'RESTRICTED_CARD'];
 
 @Injectable()
 export class DemoService {
@@ -53,10 +89,9 @@ export class DemoService {
     private readonly fx: FxService,
     private readonly transactions: TransactionsService,
     private readonly transactionsRepo: TransactionsRepository,
-    private readonly incidents: IncidentsRepository,
     private readonly baselines: BaselinesService,
-    private readonly detectionRuns: DetectionRepository,
     private readonly detection: DetectionService,
+    private readonly prisma: PrismaService,
   ) {}
 
   /**
@@ -81,8 +116,8 @@ export class DemoService {
 
     for (let minutesAgo = historyHours * 60; minutesAgo >= 0; minutesAgo -= 5) {
       const at = new Date(now.getTime() - minutesAgo * 60_000);
-      const activity = dailyActivity(at);
       for (const route of ROUTES) {
+        const activity = dailyActivity(at, route.country);
           const count = Math.max(1, Math.round(route.weight * density * activity * (0.8 + random() * 0.4)));
         for (let i = 0; i < count; i++) {
           rows.push(makeTx(route, offset(at, random), route.approval, random));
@@ -101,6 +136,11 @@ export class DemoService {
       transactions: inserted,
       baselines: baselines.rebuilt,
       routes: ROUTES.length,
+      merchants: new Set(ROUTES.map((route) => route.merchant)).size,
+      providers: new Set(ROUTES.map((route) => route.provider)).size,
+      countries: new Set(ROUTES.map((route) => route.country)).size,
+      methods: new Set(ROUTES.map((route) => route.method)).size,
+      currencies: [...new Set(ROUTES.map((route) => route.currency))].sort(),
       historyHours,
       next: [
         'POST /api/detection/run  -> deberia responder NO_ANOMALY',
@@ -140,6 +180,14 @@ export class DemoService {
       currency: base?.currency ?? 'USD',
       approval,
       weight: 1,
+      minAmountCents: base?.minAmountCents ?? 2_000,
+      maxAmountCents: base?.maxAmountCents ?? 50_000,
+      baseLatencyMs: base?.baseLatencyMs ?? 450,
+      latencyJitterMs: base?.latencyJitterMs ?? 850,
+      declineCodes: base?.declineCodes ?? ['DO_NOT_HONOR', 'INSUFFICIENT_FUNDS'],
+      errorCodes: base?.errorCodes,
+      timeoutShare: base?.timeoutShare,
+      errorShare: base?.errorShare,
     };
 
     const rows: CreateTransactionDto[] = [];
@@ -230,6 +278,35 @@ export class DemoService {
         0.90,
 
       weight: 1,
+
+      minAmountCents:
+        base?.minAmountCents ??
+        2_000,
+
+      maxAmountCents:
+        base?.maxAmountCents ??
+        50_000,
+
+      baseLatencyMs:
+        base?.baseLatencyMs ??
+        450,
+
+      latencyJitterMs:
+        base?.latencyJitterMs ??
+        850,
+
+      declineCodes:
+        base?.declineCodes ??
+        ['DO_NOT_HONOR', 'INSUFFICIENT_FUNDS'],
+
+      errorCodes:
+        base?.errorCodes,
+
+      timeoutShare:
+        base?.timeoutShare,
+
+      errorShare:
+        base?.errorShare,
     };
 
     const perMinute =
@@ -404,12 +481,25 @@ export class DemoService {
   }
 
   private async resetDemoData() {
-    // Destructivo y exclusivo del entorno demo. El orden respeta las FK:
-    // Incident elimina diagnoses/evidence por cascade antes de DetectionRun.
-    await this.incidents.deleteAll();
-    await this.detectionRuns.deleteAll();
-    await this.transactionsRepo.deleteAll();
-    await this.baselines.clear();
+    /*
+     * Destructivo y exclusivo del entorno demo. TRUNCATE es intencional:
+     * Railway puede tener un disco pequeno y DELETE de decenas de miles de
+     * filas genera suficiente WAL para agotarlo antes de volver a sembrar.
+     * La lista es fija (sin input del usuario) y conserva FX, destinatarios y
+     * politicas de escalamiento.
+     */
+    await this.prisma.$executeRawUnsafe(`
+      TRUNCATE TABLE
+        "AlertNotification",
+        "IncidentEscalation",
+        "DiagnosisEvidence",
+        "IncidentDiagnosis",
+        "Incident",
+        "DetectionRun",
+        "Transaction",
+        "Baseline"
+      RESTART IDENTITY CASCADE
+    `);
   }
 
   private async insertInChunks(rows: CreateTransactionDto[], chunkSize = 2_000) {
@@ -494,23 +584,41 @@ function makeTx(route: Route, occurredAt: Date, approval: number, random: () => 
   const roll = random();
   let status: PaymentStatusValue;
   if (roll < approval) status = 'APPROVED';
-  else if (roll < approval + (1 - approval) * 0.7) status = 'DECLINED';
-  else if (roll < approval + (1 - approval) * 0.88) status = 'ERROR';
+  else if (roll < approval + (1 - approval) * (1 - (route.errorShare ?? 0.12) - (route.timeoutShare ?? 0.08))) status = 'DECLINED';
+  else if (roll < approval + (1 - approval) * (1 - (route.timeoutShare ?? 0.08))) status = 'ERROR';
   else status = 'TIMEOUT';
 
-  const scale = route.currency === 'COP' ? 400 : route.currency === 'MXN' ? 20 : route.currency === 'BRL' ? 5 : 1;
+  const declineCode = status === 'DECLINED' ? pick(route.declineCodes, random) : undefined;
+  const errorType = status === 'ERROR'
+    ? pick(route.errorCodes ?? ['PROVIDER_ERROR', 'PROVIDER_INTERNAL_ERROR', 'PROVIDER_INVALID_RESPONSE'], random)
+    : status === 'TIMEOUT'
+      ? 'PROVIDER_TIMEOUT'
+      : undefined;
+  const responseCode = declineCode ?? errorType ?? (status === 'APPROVED' ? 'SUCCEEDED' : undefined);
+  const attemptNumber = random() < 0.08 ? 2 : 1;
+  const paymentId = demoId('pay', route, occurredAt, random);
+  const latencyMs = status === 'TIMEOUT'
+    ? 5_000 + Math.floor(random() * 4_000)
+    : route.baseLatencyMs + Math.floor(random() * route.latencyJitterMs) + (status === 'ERROR' ? 500 : 0);
 
   return {
+    externalId: demoId('txn', route, occurredAt, random),
+    paymentId,
+    attemptNumber,
+    transactionType: random() < 0.03 ? 'AUTHORIZE' : 'PURCHASE',
     merchant: route.merchant,
     provider: route.provider,
     method: route.method,
     country: route.country,
     issuingBank: route.issuingBank,
     status,
-    declineCode: status === 'DECLINED' ? DECLINE_CODES[Math.floor(random() * DECLINE_CODES.length)] : undefined,
-    errorType: status === 'ERROR' ? 'PROVIDER_ERROR' : status === 'TIMEOUT' ? 'GATEWAY_TIMEOUT' : undefined,
-    latencyMs: status === 'TIMEOUT' ? 5_000 + Math.floor(random() * 3_000) : 200 + Math.floor(random() * 900),
-    amountCents: Math.round((2_000 + Math.floor(random() * 48_000)) * scale),
+    declineCode,
+    errorType,
+    responseCode,
+    merchantAdviceCode: merchantAdviceFor(declineCode),
+    providerResponseCode: providerCodeFor(responseCode),
+    latencyMs,
+    amountCents: route.minAmountCents + Math.floor(random() * (route.maxAmountCents - route.minAmountCents + 1)),
     currency: route.currency,
     occurredAt: occurredAt.toISOString(),
   };
@@ -637,16 +745,11 @@ function makePredictiveTx(
       ];
   }
 
-  const scale =
-    route.currency === 'COP'
-      ? 400
-      : route.currency === 'MXN'
-        ? 20
-        : route.currency === 'BRL'
-          ? 5
-          : 1;
-
   return {
+    externalId: demoId('txn', route, occurredAt, random),
+    paymentId: demoId('pay', route, occurredAt, random),
+    attemptNumber: random() < 0.12 ? 2 : 1,
+    transactionType: 'PURCHASE',
     merchant:
       route.merchant,
 
@@ -668,16 +771,26 @@ function makePredictiveTx(
 
     errorType,
 
+    responseCode:
+      declineCode ??
+      errorType ??
+      (status === 'APPROVED' ? 'SUCCEEDED' : undefined),
+
+    merchantAdviceCode:
+      merchantAdviceFor(declineCode),
+
+    providerResponseCode:
+      providerCodeFor(declineCode ?? errorType),
+
     latencyMs,
 
     amountCents:
-      Math.round(
-        (
-          2_000 +
-          Math.floor(
-            random() * 48_000,
-          )
-        ) * scale,
+      route.minAmountCents +
+      Math.floor(
+        random() *
+          (route.maxAmountCents -
+            route.minAmountCents +
+            1),
       ),
 
     currency:
@@ -688,12 +801,93 @@ function makePredictiveTx(
   };
 }
 
-/** Curva de actividad diaria: valles de madrugada, picos de tarde. */
-function dailyActivity(at: Date): number {
-  const hour = at.getUTCHours();
-  const weekend = at.getUTCDay() === 0 || at.getUTCDay() === 6;
+function route(
+  merchant: string,
+  provider: string,
+  method: string,
+  country: string,
+  issuingBank: string,
+  currency: string,
+  approval: number,
+  weight: number,
+  minAmountCents: number,
+  maxAmountCents: number,
+  baseLatencyMs: number,
+  latencyJitterMs: number,
+  declineCodes: string[],
+  errorCodes?: string[],
+  timeoutShare?: number,
+  errorShare?: number,
+): Route {
+  return {
+    merchant,
+    provider,
+    method,
+    country,
+    issuingBank,
+    currency,
+    approval,
+    weight,
+    minAmountCents,
+    maxAmountCents,
+    baseLatencyMs,
+    latencyJitterMs,
+    declineCodes,
+    errorCodes,
+    timeoutShare,
+    errorShare,
+  };
+}
+
+function pick(values: string[], random: () => number): string {
+  return values[Math.floor(random() * values.length)]!;
+}
+
+function merchantAdviceFor(code?: string): string | undefined {
+  if (!code) return undefined;
+  if (['EXPIRED_CARD', 'INVALID_CARD_DATA', 'INVALID_SECURITY_CODE'].includes(code)) {
+    return 'UPDATE_INFORMATION';
+  }
+  if (['FRAUD_VALIDATION', 'NO_RETRY_LIFE_CYCLE', 'NO_RETRY_POLICY'].includes(code)) {
+    return 'DO_NOT_TRY_AGAIN';
+  }
+  if (['INSUFFICIENT_FUNDS', 'DO_NOT_HONOR', 'DECLINED_BY_BANK'].includes(code)) {
+    return 'TRY_AGAIN_LATER';
+  }
+  return undefined;
+}
+
+function providerCodeFor(code?: string): string | undefined {
+  const codes: Record<string, string> = {
+    SUCCEEDED: '00',
+    DO_NOT_HONOR: '05',
+    INSUFFICIENT_FUNDS: '51',
+    EXPIRED_CARD: '54',
+    INVALID_SECURITY_CODE: 'N7',
+    RESTRICTED_BY_BANK: '62',
+    DECLINED_BY_BANK: '57',
+    PROVIDER_TIMEOUT: '91',
+    PROVIDER_ERROR: '96',
+    PROVIDER_INTERNAL_ERROR: '96',
+  };
+  return code ? codes[code] ?? code : undefined;
+}
+
+function demoId(prefix: string, route: Route, occurredAt: Date, random: () => number): string {
+  const routeKey = `${route.country}-${route.provider}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  const entropy = Math.floor(random() * 2_176_782_336).toString(36).padStart(6, '0');
+  return `${prefix}_demo_${routeKey}_${occurredAt.getTime().toString(36)}_${entropy}`;
+}
+
+/** Curva por hora local: valle nocturno, picos de almuerzo y tarde. */
+function dailyActivity(at: Date, country: string): number {
+  const timeZone = resolveRouteTimeZone({ country }).timeZone;
+  const { hour } = localHourMinute(at, timeZone);
+  const weekday = new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short' }).format(at);
+  const weekend = weekday === 'Sun' || weekday === 'Sat';
   const shape = 0.35 + 0.65 * Math.sin(((hour - 4 + 24) % 24) * (Math.PI / 24)) ** 2;
-  return shape * (weekend ? 0.6 : 1);
+  const lunchPeak = hour >= 11 && hour <= 14 ? 1.15 : 1;
+  return shape * lunchPeak * (weekend ? 0.72 : 1);
 }
 
 function offset(at: Date, random: () => number): Date {

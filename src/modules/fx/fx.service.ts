@@ -13,7 +13,15 @@ export const SEED_RATES: Record<string, number> = {
 @Injectable()
 export class FxService {
   private readonly logger = new Logger(FxService.name);
-  private readonly cache = new Map<string, { id: string; usdPerUnit: number }>();
+  /**
+   * Cachea la promesa, no solo el resultado. En ingesta bulk miles de filas
+   * pueden pedir la misma moneda/fecha simultaneamente; compartir el lookup
+   * evita disparar miles de consultas identicas contra PostgreSQL remoto.
+   */
+  private readonly cache = new Map<
+    string,
+    Promise<{ id: string; usdPerUnit: number } | null>
+  >();
 
   constructor(private readonly repository: FxRepository) {}
 
@@ -68,12 +76,19 @@ export class FxService {
     const cached = this.cache.get(key);
     if (cached) return cached;
 
-    const row = await this.repository.findEffective(currency, occurredAt);
-    if (!row) return null;
-
-    const value = { id: row.id, usdPerUnit: Number(row.usdPerUnit) };
-    this.cache.set(key, value);
-    return value;
+    const lookup = this.repository
+      .findEffective(currency, occurredAt)
+      .then((row) =>
+        row
+          ? { id: row.id, usdPerUnit: Number(row.usdPerUnit) }
+          : null,
+      )
+      .catch((error: unknown) => {
+        this.cache.delete(key);
+        throw error;
+      });
+    this.cache.set(key, lookup);
+    return lookup;
   }
 
   list() {
