@@ -134,6 +134,7 @@ POST   /api/fx/rates/seed
 ```
 POST   /api/agent/incidents/:incidentId/analyze
 POST   /api/agent/incidents/analyze-active
+GET    /api/agent/incidents/:incidentId/diagnosis
 GET    /api/agent/incidents/:incidentId/analyze/stream
 ```
 
@@ -152,6 +153,15 @@ Incident, su diagnosis/evidence persistida y los parametros de Detection. OpenAI
 no calcula confidence explicable ni impacto contrafactual. Los controles sanos
 solo descartan generalizaciones y el trace expone evidencia observable, no
 razonamiento privado.
+
+Live Monitoring reconcilia automaticamente los incidentes confirmados con el
+Watchtower de diagnostico. Prediction no crea incidentes ni dispara diagnosticos
+de causa raiz. El analisis no bloquea el siguiente ciclo de Detection y el `GET`
+expone `NOT_STARTED`, `PENDING`, `QUEUED`, `RUNNING`, `COMPLETED` o `FAILED`, junto
+con `diagnosis` cuando termina. La cola limita concurrencia y prioriza el mayor
+`lossPerMinuteCents`; el `POST` manual se conserva para reintentos y depuracion.
+El estado es local al proceso y los incidentes `OPEN` se reconcilian al reiniciar,
+sin agregar campos ni migraciones Prisma. El SSE conserva su ejecucion bajo demanda.
 
 El endpoint `stream` usa SSE (`text/event-stream`) y emite solamente actividad
 publica: `run_started`, `phase_changed`, `tool_started`, `tool_completed`,

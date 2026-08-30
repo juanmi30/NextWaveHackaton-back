@@ -99,8 +99,17 @@ async function main() {
       dimensions: { provider: 'Adyen', country: 'BR' }, approvalRate: 0.2,
       durationSeconds: 240, targetTransactionsPerTick: 40,
     });
-    await waitUntil('Incident A', async () => (await get('/incidents?status=OPEN')).length >= 1);
+    const incidentA = await waitUntil('Incident A', async () => {
+      const rows = await get('/incidents?status=OPEN&limit=20');
+      return rows.length >= 1 ? rows[0] : false;
+    });
     console.log('[PASS] First live incident detected');
+    const diagnosisA = await waitUntil('Automatic diagnosis A', async () => {
+      const state = await get(`/agent/incidents/${incidentA.id}/diagnosis`);
+      if (state.status === 'FAILED') throw new Error('Automatic diagnosis A failed');
+      return state.status === 'COMPLETED' && state.diagnosis ? state : false;
+    }, 120_000);
+    console.log('AUTO_ANALYSIS_A=PASS');
 
     console.log('[STEP] Incident B');
     await post('/live/degradations', {
@@ -113,6 +122,21 @@ async function main() {
         new Set(rows.map((row) => row.anchorFingerprint)).size >= 2 ? rows : false;
     });
     console.log('[PASS] Simultaneous incidents separated');
+    const incidentB = incidents.find((row) => row.id !== incidentA.id);
+    assert(incidentB, 'Second canonical Incident was not identified');
+    await waitUntil('Automatic diagnosis B', async () => {
+      const state = await get(`/agent/incidents/${incidentB.id}/diagnosis`);
+      if (state.status === 'FAILED') throw new Error('Automatic diagnosis B failed');
+      return state.status === 'COMPLETED' && state.diagnosis ? state : false;
+    }, 120_000);
+    console.log('AUTO_ANALYSIS_B=PASS');
+
+    const diagnosisAAfterLaterDetection = await get(`/agent/incidents/${incidentA.id}/diagnosis`);
+    assert(
+      diagnosisAAfterLaterDetection.completedAt === diagnosisA.completedAt,
+      'Later Detection replaced the initial automatic diagnosis',
+    );
+    console.log('NO_DUPLICATE_ANALYSIS=PASS');
 
     console.log('[STEP] Multi-agent');
     const portfolio = await post('/agent/incidents/analyze-active', {}, { timeoutMs: 90_000 });

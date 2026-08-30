@@ -14,6 +14,7 @@ import { DemoService } from '../demo/demo.service.js';
 import { DetectionService } from '../detection/detection.service.js';
 import { TransactionsRepository } from '../transactions/transactions.repository.js';
 import { PredictionService, type PredictionScanResult } from '../prediction/prediction.service.js';
+import { IncidentAutoAnalysisService } from '../agent/incident-auto-analysis.service.js';
 import type { CreateLiveDegradationDto } from './dto/create-live-degradation.dto.js';
 import type { StartLiveMonitorDto } from './dto/start-live-monitor.dto.js';
 import { LiveEventService } from './live-event.service.js';
@@ -77,6 +78,7 @@ export class LiveMonitoringService implements OnModuleInit, OnModuleDestroy {
     private readonly prediction: PredictionService,
     private readonly generator: LiveTransactionGeneratorService,
     private readonly events: LiveEventService,
+    private readonly autoAnalysis: IncidentAutoAnalysisService,
   ) {}
 
   async onModuleInit() {
@@ -151,6 +153,7 @@ export class LiveMonitoringService implements OnModuleInit, OnModuleDestroy {
       15_000,
     );
     this.events.emit({ type: 'monitor_started', config: this.config });
+    await this.autoAnalysis.reconcileOpenIncidents();
     return this.status();
   }
 
@@ -308,6 +311,7 @@ export class LiveMonitoringService implements OnModuleInit, OnModuleDestroy {
           priorityRank: incident.priorityRank,
         });
       }
+      await this.autoAnalysis.reconcileOpenIncidents();
     } catch (error) {
       this.lastDetectionError = safeError(error);
       this.logger.error(`Automatic detection failed: ${this.lastDetectionError}`);

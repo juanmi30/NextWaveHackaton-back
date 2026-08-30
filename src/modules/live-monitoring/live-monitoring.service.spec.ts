@@ -9,6 +9,7 @@ import type { TransactionsRepository } from '../transactions/transactions.reposi
 import { LiveEventService } from './live-event.service.js';
 import { LiveMonitoringService } from './live-monitoring.service.js';
 import type { LiveTransactionGeneratorService } from './live-transaction-generator.service.js';
+import type { IncidentAutoAnalysisService } from '../agent/incident-auto-analysis.service.js';
 
 const scanResult = {
   scannedAt: '2026-08-29T12:00:10.000Z', evaluatedSegments: 2, predictions: 2,
@@ -29,6 +30,7 @@ function setup(options: {
   detection?: ReturnType<typeof vi.fn>;
   prediction?: ReturnType<typeof vi.fn>;
   ready?: boolean;
+  autoAnalysis?: ReturnType<typeof vi.fn>;
 } = {}) {
   const generator = {
     reset: vi.fn(),
@@ -39,6 +41,7 @@ function setup(options: {
   const events = new LiveEventService();
   const prediction = options.prediction ?? vi.fn().mockResolvedValue(scanResult);
   const eventSpy = vi.spyOn(events, 'emit');
+  const autoAnalysis = options.autoAnalysis ?? vi.fn().mockResolvedValue({ open: 0, scheduled: 0 });
   const service = new LiveMonitoringService(
     { get: vi.fn(() => undefined) } as unknown as ConfigService,
     { count: vi.fn().mockResolvedValue(options.ready === false ? 0 : 100) } as unknown as TransactionsRepository,
@@ -51,8 +54,9 @@ function setup(options: {
     { scan: prediction } as unknown as PredictionService,
     generator as unknown as LiveTransactionGeneratorService,
     events,
+    { reconcileOpenIncidents: autoAnalysis } as unknown as IncidentAutoAnalysisService,
   );
-  return { service, generator, detection, prediction, events, eventSpy };
+  return { service, generator, detection, prediction, events, eventSpy, autoAnalysis };
 }
 
 describe('LiveMonitoringService', () => {
@@ -136,6 +140,23 @@ describe('LiveMonitoringService', () => {
     service.stop();
   });
 
+  it('reconciles all confirmed incidents after detection, including existing ones', async () => {
+    const detection = vi.fn().mockResolvedValue({
+      runId: 'run-1',
+      outcome: 'INCIDENTS_FOUND',
+      incidents: [
+        { incidentId: 'incident-a', isNew: true, priorityRank: 1 },
+        { incidentId: 'incident-b', isNew: true, priorityRank: 2 },
+        { incidentId: 'incident-old', isNew: false, priorityRank: 3 },
+      ],
+    });
+    const { service, autoAnalysis } = setup({ detection });
+    await service.start({ detectionIntervalMs: 1_000 });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(autoAnalysis).toHaveBeenCalledTimes(2);
+    await service.stop();
+  });
   it('skips overlapping detection runs', async () => {
     let resolveDetection!: (value: unknown) => void;
     const slowDetection = vi.fn(
