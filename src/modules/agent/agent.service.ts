@@ -12,6 +12,10 @@ import { AnalyticsService } from '../analytics/analytics.service.js';
 import { IncidentsService } from '../incidents/incidents.service.js';
 import { createPaymentsConciergeAgent } from './agents/payments-concierge.agent.js';
 import { AgentDiagnosisSchema } from './schemas/agent-diagnosis.schema.js';
+import {
+  MultiIncidentAnalysisSchema,
+  type MultiIncidentAnalysis,
+} from './schemas/multi-incident-analysis.schema.js';
 import { createGetBreakdownTool } from './tools/get-breakdown.tool.js';
 import { createGetDeclineReasonDistributionTool } from './tools/get-decline-reason-distribution.tool.js';
 import { createGetIncidentHistoryTool } from './tools/get-incident-history.tool.js';
@@ -30,8 +34,11 @@ import {
   mapSdkEventToPublicAgentEvents,
   type AgentStreamMappingState,
 } from './agent-stream.mapper.js';
+import { calculateIncidentPriority } from '../../common/detection-metrics.js';
 
 type LoadedIncident = Awaited<ReturnType<IncidentsService['findOne']>>;
+type ActiveIncident = Awaited<ReturnType<IncidentsService['findAll']>>[number];
+type RankedIncident = ActiveIncident & { priorityRank: number; priorityScore: number };
 
 @Injectable()
 export class AgentService {
@@ -58,6 +65,75 @@ export class AgentService {
     }
 
     return this.normalizeDiagnosis(finalOutput, incidentId, prepared.incident);
+  }
+
+  async analyzeActiveIncidents(limit = 10): Promise<MultiIncidentAnalysis> {
+    const active = await this.incidents.findAll({ status: 'OPEN', limit });
+    const ranked = rankActiveIncidents(active);
+
+    if (ranked.length === 0) return createEmptyPortfolio();
+
+    const concurrency = boundedConcurrency(
+      this.config.get<string>('AGENT_ANALYSIS_CONCURRENCY'),
+    );
+    const analyses = await mapSettledWithConcurrency(
+      ranked,
+      concurrency,
+      (incident) => this.analyzeIncident(incident.id),
+    );
+
+    const incidents = ranked.map((incident, index) => {
+      const result = analyses[index];
+      if (result.status === 'fulfilled') {
+        return {
+          incidentId: incident.id,
+          priorityRank: incident.priorityRank,
+          priorityScore: incident.priorityScore,
+          severity: incident.severity,
+          lossPerMinuteCents: incident.lossPerMinuteCents,
+          analysisStatus: 'ANALYZED' as const,
+          diagnosis: result.value,
+          error: null,
+        };
+      }
+      return {
+        incidentId: incident.id,
+        priorityRank: incident.priorityRank,
+        priorityScore: incident.priorityScore,
+        severity: incident.severity,
+        lossPerMinuteCents: incident.lossPerMinuteCents,
+        analysisStatus: 'FAILED' as const,
+        diagnosis: null,
+        error: 'Incident analysis failed',
+      };
+    });
+    const successfullyAnalyzed = incidents.filter(
+      (incident) => incident.analysisStatus === 'ANALYZED',
+    ).length;
+    const totalLossPerMinuteCents = ranked.reduce(
+      (total, incident) => total + incident.lossPerMinuteCents,
+      0,
+    );
+    const correlation = determineCorrelation(incidents);
+    const summaries = buildPortfolioSummaries(
+      incidents,
+      totalLossPerMinuteCents,
+      correlation.status,
+    );
+
+    return MultiIncidentAnalysisSchema.parse({
+      generatedAt: now(),
+      portfolio: {
+        activeIncidentCount: ranked.length,
+        successfullyAnalyzed,
+        failedAnalyses: ranked.length - successfullyAnalyzed,
+        totalLossPerMinuteCents,
+        highestPriorityIncidentId: ranked[0].id,
+      },
+      incidents,
+      correlation,
+      summaries,
+    });
   }
 
   streamAnalyzeIncident(incidentId: string): Observable<MessageEvent> {
@@ -181,4 +257,163 @@ export class AgentService {
 
 function now() {
   return new Date().toISOString();
+}
+
+function rankActiveIncidents(incidents: ActiveIncident[]): RankedIncident[] {
+  return [...incidents]
+    .sort((left, right) => {
+      const leftDiagnosis = left.diagnoses[0];
+      const rightDiagnosis = right.diagnoses[0];
+      return (
+        right.lossPerMinuteCents - left.lossPerMinuteCents ||
+        right.severity - left.severity ||
+        (rightDiagnosis?.confidence ?? 0) - (leftDiagnosis?.confidence ?? 0) ||
+        right.lostApprovals - left.lostApprovals ||
+        right.detectedAt.getTime() - left.detectedAt.getTime()
+      );
+    })
+    .map((incident, index) => ({
+      ...incident,
+      priorityRank: index + 1,
+      priorityScore: priorityScore(incident),
+    }));
+}
+
+function priorityScore(incident: ActiveIncident) {
+  const confidence = incident.diagnoses[0]?.confidence ?? 0;
+  return calculateIncidentPriority({
+    lossPerMinuteCents: incident.lossPerMinuteCents,
+    severity: incident.severity,
+    confidence,
+    lostApprovals: incident.lostApprovals,
+    evidenceSufficient: incident.diagnoses.length > 0,
+  });
+}
+
+function boundedConcurrency(configured: string | undefined) {
+  const parsed = Number(configured);
+  return Number.isInteger(parsed) ? Math.min(5, Math.max(1, parsed)) : 3;
+}
+
+async function mapSettledWithConcurrency<T, R>(
+  values: T[],
+  concurrency: number,
+  operation: (value: T) => Promise<R>,
+): Promise<PromiseSettledResult<R>[]> {
+  const results = Array.from<PromiseSettledResult<R>>({ length: values.length });
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+    while (nextIndex < values.length) {
+      const index = nextIndex++;
+      try {
+        results[index] = { status: 'fulfilled', value: await operation(values[index]) };
+      } catch (reason) {
+        results[index] = { status: 'rejected', reason };
+      }
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+function determineCorrelation(incidents: MultiIncidentAnalysis['incidents']) {
+  if (incidents.length < 2) {
+    return {
+      status: 'INDEPENDENT' as const,
+      explanation: 'There are fewer than two active incidents to correlate.',
+    };
+  }
+  const diagnoses = incidents.map((incident) => incident.diagnosis);
+  if (
+    diagnoses.some(
+      (diagnosis) => !diagnosis || diagnosis.evidenceStatus === 'INSUFFICIENT',
+    )
+  ) {
+    return {
+      status: 'INSUFFICIENT_EVIDENCE' as const,
+      explanation:
+        'At least one incident lacks sufficient independent evidence, so no shared cause is inferred.',
+    };
+  }
+
+  const keys = diagnoses.map((diagnosis) => discriminatingKey(diagnosis!));
+  const related = keys.some(
+    (key, index) => key !== null && keys.slice(index + 1).includes(key),
+  );
+  return related
+    ? {
+        status: 'POSSIBLY_RELATED' as const,
+        explanation:
+          'At least two independent diagnoses share multiple supported discriminating factors; Detection incident identities remain separate.',
+      }
+    : {
+        status: 'INDEPENDENT' as const,
+        explanation:
+          'Detection separated these incidents and the diagnoses do not share enough supported discriminating factors to infer a common cause.',
+      };
+}
+
+function discriminatingKey(diagnosis: AgentDiagnosis) {
+  if (!diagnosis.rootCause) return null;
+  const dimensions = Object.entries(diagnosis.rootCause.dimensions).filter(
+    (entry): entry is [string, string] => entry[1] !== null,
+  );
+  if (dimensions.length < 2) return null;
+  return dimensions.map(([name, value]) => `${name}=${value}`).join('|');
+}
+
+function buildPortfolioSummaries(
+  incidents: MultiIncidentAnalysis['incidents'],
+  totalLossPerMinuteCents: number,
+  correlation: MultiIncidentAnalysis['correlation']['status'],
+) {
+  const highest = incidents[0];
+  const failed = incidents.filter((incident) => incident.analysisStatus === 'FAILED').length;
+  const insufficient = incidents.some(
+    (incident) => incident.diagnosis?.evidenceStatus === 'INSUFFICIENT',
+  );
+  const evidenceNote =
+    failed > 0 || insufficient
+      ? ` ${failed} analysis failed and/or at least one incident has insufficient evidence.`
+      : '';
+  return {
+    operations:
+      `${incidents.length} active payment incident(s) require human investigation. ` +
+      `Review incident ${highest.incidentId} first at ${usdPerMinute(highest.lossPerMinuteCents)}; ` +
+      `combined stored impact is ${usdPerMinute(totalLossPerMinuteCents)}. ` +
+      `Correlation assessment: ${correlation}.` +
+      evidenceNote,
+    executive:
+      `${incidents.length} active payment incident(s) have a combined stored impact of ` +
+      `${usdPerMinute(totalLossPerMinuteCents)}, led by incident ${highest.incidentId}.`,
+  };
+}
+
+function usdPerMinute(cents: number) {
+  return `$${(cents / 100).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}/min`;
+}
+
+function createEmptyPortfolio(): MultiIncidentAnalysis {
+  return MultiIncidentAnalysisSchema.parse({
+    generatedAt: now(),
+    portfolio: {
+      activeIncidentCount: 0,
+      successfullyAnalyzed: 0,
+      failedAnalyses: 0,
+      totalLossPerMinuteCents: 0,
+      highestPriorityIncidentId: null,
+    },
+    incidents: [],
+    correlation: {
+      status: 'INDEPENDENT',
+      explanation: 'There are no active incidents to correlate.',
+    },
+    summaries: {
+      operations: 'No open payment incidents require analysis.',
+      executive: 'No active payment incidents are currently reporting stored economic impact.',
+    },
+  });
 }

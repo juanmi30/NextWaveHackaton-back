@@ -14,6 +14,7 @@ import { DemoModule } from './modules/demo/demo.module.js';
 import { AgentModule } from './modules/agent/agent.module.js';
 import { GraphModule } from './modules/graph/graph.module.js';
 import { PredictionModule } from './modules/prediction/prediction.module.js';
+import { LiveMonitoringModule } from './modules/live-monitoring/live-monitoring.module.js';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { PredictionModule } from './modules/prediction/prediction.module.js';
     AgentModule,
     GraphModule,
     PredictionModule,
+    LiveMonitoringModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],

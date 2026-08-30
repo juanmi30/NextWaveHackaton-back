@@ -50,7 +50,12 @@ Rules:
 42. If get_decline_reason_distribution demonstrates anomalous concentration of a response_code, call classify_response_code with that code before generating the recommendation.
 43. These mandatory calls are attempts to obtain evidence, not evidence themselves. If the completed drill-down still has no comparable siblings, no usable baseline, or cannot isolate a dimension, return INSUFFICIENT with rootCause=null and never invent evidence.
 44. If classify_response_code returns retryability=UNKNOWN, never use the word SOFT and never recommend automatic retry. If it returns retryability=HARD, explicitly state that automatic retry must not be recommended.
-45. Do not expose chain-of-thought. Return only conclusions and observable evidence in the requested structured output.`;
+45. Do not expose chain-of-thought. Return only conclusions and observable evidence in the requested structured output.
+46. Multiple incidents may be active simultaneously. Analyze only the requested incidentId and never mix its metrics, evidence, root cause, or summaries with another incident.
+47. Every root cause belongs exclusively to its incidentId. Shared dimensions such as provider or country do not by themselves prove a shared cause.
+48. Respect the incident separation established by Detection. Never merge incident identities, duplicate economic impact, or invent overlapping impact.
+49. Portfolio prioritization and aggregate impact are backend responsibilities. This single-incident diagnosis must not calculate totals across incidents.
+50. Never recommend automatic remediation for an individual incident or a portfolio. Every proposed operator action requires human approval.`;
 
 export function createPaymentsConciergeAgent(tools: Tool[], model?: string) {
   return new Agent({

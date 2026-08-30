@@ -2,17 +2,31 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { IncidentsRepository } from './incidents.repository.js';
 import type { QueryIncidentsDto } from './dto/query-incidents.dto.js';
 import type { Prisma } from '../../generated/prisma/client.js';
+import { calculateIncidentPriority } from '../../common/detection-metrics.js';
 
 @Injectable()
 export class IncidentsService {
   constructor(private readonly repository: IncidentsRepository) {}
 
-  findAll(query: QueryIncidentsDto) {
+  async findAll(query: QueryIncidentsDto) {
     const where: Prisma.IncidentWhereInput = {
       ...(query.status ? { status: query.status } : {}),
       ...(query.minSeverity !== undefined ? { severity: { gte: query.minSeverity } } : {}),
     };
-    return this.repository.findMany(where, query.limit ?? 50);
+    const incidents = await this.repository.findMany(where, query.limit ?? 50);
+    return incidents
+      .map((incident) => ({
+        ...incident,
+        priorityScore: calculateIncidentPriority({
+          lossPerMinuteCents: incident.lossPerMinuteCents,
+          severity: incident.severity,
+          confidence: incident.diagnoses[0]?.confidence ?? 0,
+          lostApprovals: incident.lostApprovals,
+          evidenceSufficient: incident.diagnoses.length > 0,
+        }),
+      }))
+      .sort((left, right) => right.priorityScore - left.priorityScore)
+      .map((incident, index) => ({ ...incident, priorityRank: index + 1 }));
   }
 
   async findOne(id: string) {

@@ -50,4 +50,18 @@ export class RunDetectionDto {
   @Min(1)
   @Max(1440)
   resolveAfterMinutes?: number = 30;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  confirmationRuns?: number = 2;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  recoveryRuns?: number = 2;
 }
