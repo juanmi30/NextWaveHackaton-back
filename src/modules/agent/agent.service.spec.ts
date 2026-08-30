@@ -161,6 +161,8 @@ describe('AgentService streaming analysis', () => {
     expect(result).toHaveProperty('ruledOutHypotheses');
     expect(result).toHaveProperty('counterfactualImpact');
     expect(result).toHaveProperty('diagnosisTrace');
+    expect(result).toHaveProperty('declineIntelligence');
+    expect(result).toHaveProperty('operationalOwnership');
     expect(result).not.toHaveProperty('type');
   });
 
@@ -179,6 +181,8 @@ describe('AgentService streaming analysis', () => {
     expect(result).toHaveProperty('ruledOutHypotheses');
     expect(result).toHaveProperty('counterfactualImpact');
     expect(result).toHaveProperty('diagnosisTrace');
+    expect(result).toHaveProperty('declineIntelligence');
+    expect(result).toHaveProperty('operationalOwnership');
   });
 
   it('calculates the same backend enrichment for OpenAI success and fallback', async () => {
@@ -204,6 +208,8 @@ describe('AgentService streaming analysis', () => {
     expect(openAi.ruledOutHypotheses).toEqual(fallback.ruledOutHypotheses);
     expect(openAi.counterfactualImpact).toEqual(fallback.counterfactualImpact);
     expect(openAi.diagnosisTrace).toEqual(fallback.diagnosisTrace);
+    expect(openAi.declineIntelligence).toEqual(fallback.declineIntelligence);
+    expect(openAi.operationalOwnership).toEqual(fallback.operationalOwnership);
   });
 
   it('falls back when structured output is invalid', async () => {

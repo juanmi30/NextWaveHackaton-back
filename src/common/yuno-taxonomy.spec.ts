@@ -58,6 +58,19 @@ describe('classifyTransaction — separacion de statuses', () => {
     expect(c.transactionStatus).toBe('ERROR');
     expect(c.declineType).toBe('HARD');
     expect(c.failureDomain).toBe('PROVIDER_CONFIGURATION');
+    expect(c.actionability).toBe('ACTIONABLE');
+  });
+
+  it('preserva semantica canonica para routing y decline intelligence', () => {
+    expect(classifyTransaction({ responseCode: 'DO_NOT_HONOR' })).toMatchObject({
+      declineType: 'SOFT', failureDomain: 'ISSUER', actionability: 'ISSUER_SIDE',
+    });
+    expect(classifyTransaction({ responseCode: 'PROVIDER_TIMEOUT' })).toMatchObject({
+      transactionStatus: 'ERROR', declineType: 'SOFT', failureDomain: 'PROVIDER',
+    });
+    expect(classifyTransaction({ responseCode: 'ISSUER_VIOLATION' })).toMatchObject({
+      failureDomain: 'ISSUER', actionability: 'ISSUER_SIDE',
+    });
   });
 
   it('el mismo codigo cambia de dominio segun el status real', () => {

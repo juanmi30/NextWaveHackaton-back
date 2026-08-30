@@ -3,6 +3,10 @@ import { DIMENSIONS, type Dimension, type DimensionMap } from '../../common/dime
 import type { Prisma } from '../../generated/prisma/client.js';
 import { TransactionsRepository } from '../transactions/transactions.repository.js';
 import type { LiveDegradation } from './live-monitoring.types.js';
+import {
+  classifyTransaction,
+  yunoStatusToCanonical,
+} from '../../common/yuno-taxonomy.js';
 
 type RouteProfile = Required<Omit<DimensionMap, 'failureReason'>> & {
   approvalRate: number;
@@ -63,17 +67,27 @@ export class LiveTransactionGeneratorService {
     const failureReason = approved
       ? null
       : degradation?.failureReason ?? DECLINE_CODES[Math.floor(this.random() * DECLINE_CODES.length)]!;
+    const classification = classifyTransaction({ responseCode: failureReason });
+    const yunoStatus = approved
+      ? 'SUCCEEDED'
+      : classification?.transactionStatus === 'UNKNOWN'
+        ? 'DECLINED'
+        : classification?.transactionStatus ?? 'DECLINED';
+    const status = approved ? 'APPROVED' : yunoStatusToCanonical(yunoStatus, failureReason);
     const amountUsdCents = 2_000 + Math.floor(this.random() * 48_000);
     return {
+      transactionType: 'PURCHASE',
+      yunoStatus,
+      responseCode: approved ? 'SUCCEEDED' : failureReason,
       merchant: route.merchant,
       provider: route.provider,
       method: route.method,
       country: route.country,
       issuingBank: route.issuingBank,
       failureReason,
-      status: approved ? 'APPROVED' : 'DECLINED',
-      declineCode: failureReason,
-      errorType: null,
+      status,
+      declineCode: status === 'DECLINED' ? failureReason : null,
+      errorType: status === 'ERROR' || status === 'TIMEOUT' ? failureReason : null,
       latencyMs: 200 + Math.floor(this.random() * 900),
       amountCents: amountUsdCents,
       amountUsdCents,

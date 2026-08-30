@@ -15,9 +15,9 @@ function diagnosis(sufficient = true): AgentDiagnosis {
   return {
     incidentId: 'incident-1',
     evidenceStatus: sufficient ? 'SUFFICIENT' : 'INSUFFICIENT',
-    affectedScope: dimensions,
+    affectedScope: { ...dimensions },
     rootCause: sufficient
-      ? { statement: 'Adyen is isolated in BR.', dimensions, confidence: 0.82 }
+      ? { statement: 'Adyen is isolated in BR.', dimensions: { ...dimensions }, confidence: 0.82 }
       : null,
     impact: {
       expectedApprovalRate: 0.91,
@@ -114,5 +114,31 @@ describe('enrichDiagnosis', () => {
       merchant: null, provider: 'Stripe', method: null, country: null,
       issuingBank: null, failureReason: null,
     });
+  });
+
+  it('adds canonical decline intelligence and deterministic operational ownership', () => {
+    const base = diagnosis();
+    base.rootCause!.dimensions.failureReason = 'DO_NOT_HONOR';
+    base.affectedScope.failureReason = 'DO_NOT_HONOR';
+
+    const result = enrichDiagnosis(base, incident());
+
+    expect(result.declineIntelligence).toMatchObject({
+      responseCode: 'DO_NOT_HONOR', transactionStatus: 'DECLINED', declineType: 'SOFT',
+      failureDomain: 'ISSUER', actionability: 'ISSUER_SIDE', unknownCode: false,
+    });
+    expect(result.operationalOwnership).toMatchObject({
+      suspectedDomain: 'ISSUER', primaryTeam: 'MERCHANT_SUCCESS', requiresHumanApproval: true,
+    });
+  });
+
+  it('does not invent a response code and keeps safe ownership without failureReason', () => {
+    const result = enrichDiagnosis(diagnosis(), incident());
+
+    expect(result.declineIntelligence).toBeNull();
+    expect(result.operationalOwnership).toMatchObject({
+      suspectedDomain: 'UNKNOWN', primaryTeam: 'PAYMENTS_OPS', requiresHumanApproval: true,
+    });
+    expect(result.operationalOwnership.basis[0]).toContain('No failureReason');
   });
 });
