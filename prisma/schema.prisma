@@ -157,7 +157,8 @@ model Incident {
   lastSeenAt DateTime  @default(now()) @db.Timestamptz(3)
   resolvedAt DateTime? @db.Timestamptz(3)
 
-  diagnoses IncidentDiagnosis[]
+  diagnoses  IncidentDiagnosis[]
+  escalation IncidentEscalation?
 
   @@index([status, detectedAt])
   @@index([anchorFingerprint])
@@ -209,4 +210,133 @@ model DiagnosisEvidence {
 
   @@index([diagnosisId])
   @@index([diagnosisId, isRootCause])
+}
+
+// ---------------------------------------------------------------
+// Escalamiento de alertas
+// ---------------------------------------------------------------
+
+enum RecipientRole {
+  CHECKOUT_ENGINEER
+  INTEGRATIONS_ENGINEER
+  PROVIDER_MANAGER
+  RISK_ANALYST
+  MERCHANT_SUCCESS
+  PAYMENTS_OPS
+  ADMIN
+}
+
+enum NotificationChannel {
+  EMAIL
+  WHATSAPP
+  CONSOLE
+}
+
+enum EscalationStatus {
+  PENDING
+  ACKNOWLEDGED
+  RESOLVED
+  EXHAUSTED
+}
+
+enum NotificationStatus {
+  SENT
+  FAILED
+  SKIPPED
+}
+
+model Recipient {
+  id    String        @id @default(cuid())
+  name  String
+  email String?
+  phone String?
+  role  RecipientRole
+
+  // Alcance de responsabilidad. Un arreglo vacio significa "cubre todo".
+  merchants String[] @default([])
+  providers String[] @default([])
+  countries String[] @default([])
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  notifications  AlertNotification[]
+  acknowledgedEscalations IncidentEscalation[] @relation("AcknowledgedBy")
+
+  @@index([role, active])
+}
+
+model EscalationPolicy {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  description String?
+  minSeverity Int     @default(0)
+  maxSeverity Int     @default(5)
+
+  steps       EscalationStep[]
+  escalations IncidentEscalation[]
+}
+
+model EscalationStep {
+  id       String           @id @default(cuid())
+  policyId String
+  policy   EscalationPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  level       Int
+  waitMinutes Int    @default(0)
+  label       String
+
+  roles              RecipientRole[]       @default([])
+  includeSpecialists Boolean               @default(true)
+  channels           NotificationChannel[] @default([])
+
+  @@unique([policyId, level])
+}
+
+model IncidentEscalation {
+  id         String   @id @default(cuid())
+  incidentId String   @unique
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  policyId String
+  policy   EscalationPolicy @relation(fields: [policyId], references: [id])
+
+  status       EscalationStatus @default(PENDING)
+  currentLevel Int              @default(0)
+
+  // Por que se enruto asi. Se persiste para poder defender la decision.
+  category      String?
+  actionability String?
+  routedRoles   RecipientRole[] @default([])
+  routingReason String?
+
+  nextEscalationAt DateTime?  @db.Timestamptz(3)
+  acknowledgedAt   DateTime?  @db.Timestamptz(3)
+  acknowledgedById String?
+  acknowledgedBy   Recipient? @relation("AcknowledgedBy", fields: [acknowledgedById], references: [id])
+  closedAt         DateTime?  @db.Timestamptz(3)
+  createdAt        DateTime   @default(now()) @db.Timestamptz(3)
+
+  notifications AlertNotification[]
+
+  @@index([status, nextEscalationAt])
+}
+
+model AlertNotification {
+  id           String             @id @default(cuid())
+  escalationId String
+  escalation   IncidentEscalation @relation(fields: [escalationId], references: [id], onDelete: Cascade)
+
+  recipientId String?
+  recipient   Recipient? @relation(fields: [recipientId], references: [id])
+
+  level   Int
+  role    RecipientRole?
+  channel NotificationChannel
+  status  NotificationStatus
+  target  String?
+  error   String?
+  sentAt  DateTime            @default(now()) @db.Timestamptz(3)
+
+  @@index([escalationId, level])
 }

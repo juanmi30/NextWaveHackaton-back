@@ -1,6 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import { IncidentsService } from './incidents.service.js';
 import type { IncidentsRepository } from './incidents.repository.js';
+import type { EscalationService } from '../alerts/escalation.service.js';
+
+/** El escalamiento no es el objeto de estas pruebas: se neutraliza. */
+function escalationStub(): EscalationService {
+  return {
+    acknowledge: async () => undefined,
+    close: async () => undefined,
+  } as unknown as EscalationService;
+}
 
 const fingerprint = 'merchant=Mercado Uno|method=CARD|provider=Adyen';
 
@@ -24,7 +33,7 @@ function createService(previous: ReturnType<typeof incident>[]) {
   };
   return {
     repository,
-    service: new IncidentsService(repository as unknown as IncidentsRepository),
+    service: new IncidentsService(repository as unknown as IncidentsRepository, escalationStub()),
   };
 }
 

@@ -1,6 +1,25 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import nodemailer from 'nodemailer';
+import type { NotificationChannel } from './escalation-policy.js';
+import type { RecipientRole } from './routing.js';
+
+export type DeliveryResult = {
+  status: 'SENT' | 'FAILED' | 'SKIPPED';
+  error?: string;
+};
+
+/** Por que le llega esto a esta persona y en que punto de la cadena estamos. */
+export type AlertContext = {
+  level: number;
+  levelLabel: string;
+  totalLevels: number;
+  role: RecipientRole;
+  recipientName: string;
+  routingReason: string;
+  escalatedFrom?: number;
+  nextEscalationAt?: Date | null;
+};
 
 export type IncidentAlert = {
   id: string;
@@ -25,31 +44,47 @@ export class AlertsService {
 
   constructor(private readonly config: ConfigService) {}
 
-  async notifyIncidentCreated(incident: IncidentAlert) {
-    const message = buildIncidentMessage(incident, this.config.get<string>('ALERT_APP_URL')?.trim());
-    const results = await Promise.allSettled([this.sendEmail(message), this.sendWhatsapp(message)]);
-
-    for (const result of results) {
-      if (result.status === 'rejected') {
-        this.logger.warn(
-          `No se pudo enviar una alerta: ${
-            result.reason instanceof Error ? result.reason.message : String(result.reason)
-          }`,
-        );
-      }
+  /**
+   * Entrega un mensaje a UN destinatario por UN canal.
+   *
+   * Antes esto era un broadcast a una lista fija de variables de entorno. Ahora
+   * el "a quien" lo decide EscalationService; aqui solo queda el "como".
+   */
+  async deliver(
+    channel: NotificationChannel,
+    target: string,
+    message: AlertMessage,
+  ): Promise<DeliveryResult> {
+    try {
+      if (channel === 'EMAIL') return await this.sendEmail(target, message);
+      if (channel === 'WHATSAPP') return await this.sendWhatsapp(target, message);
+      this.logger.log(`[CONSOLE] ${target}: ${message.subject}`);
+      return { status: 'SENT' };
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`No se pudo notificar a ${target} por ${channel}: ${reason}`);
+      return { status: 'FAILED', error: reason };
     }
   }
 
-  private async sendEmail(message: AlertMessage) {
-    if (this.config.get<string>('EMAIL_ALERTS_ENABLED') === 'false') return;
+  buildMessage(incident: IncidentAlert, context: AlertContext): AlertMessage {
+    return buildIncidentMessage(incident, this.config.get<string>('ALERT_APP_URL')?.trim(), context);
+  }
+
+  private async sendEmail(to: string, message: AlertMessage): Promise<DeliveryResult> {
+    if (this.config.get<string>('EMAIL_ALERTS_ENABLED') === 'false') {
+      return { status: 'SKIPPED', error: 'EMAIL_ALERTS_ENABLED=false' };
+    }
 
     const host = this.config.get<string>('SMTP_HOST')?.trim();
     const from = this.config.get<string>('SMTP_FROM')?.trim();
-    const to = parseList(this.config.get<string>('ALERT_EMAIL_TO'));
 
-    if (!host || !from || to.length === 0) {
-      this.logger.debug('Alertas por correo sin configurar; se omite envio.');
-      return;
+    // Sin SMTP configurado el escalamiento NO se detiene: se registra la
+    // notificacion como omitida y se sigue subiendo de nivel. Durante la demo
+    // esto permite ver toda la cadena sin depender de un servidor de correo.
+    if (!host || !from) {
+      this.logger.log(`[SIN SMTP] Correo para ${to}: ${message.subject}`);
+      return { status: 'SKIPPED', error: 'SMTP sin configurar' };
     }
 
     const port = Number(this.config.get<string>('SMTP_PORT') ?? 587);
@@ -74,60 +109,56 @@ export class AlertsService {
       html: message.html,
     });
 
-    this.logger.log(`Alerta por correo enviada a ${to.join(', ')}`);
+    this.logger.log(`Alerta por correo enviada a ${to}`);
+    return { status: 'SENT' };
   }
 
-  private async sendWhatsapp(message: AlertMessage) {
-    if (this.config.get<string>('WHATSAPP_ALERTS_ENABLED') === 'false') return;
+  private async sendWhatsapp(to: string, message: AlertMessage): Promise<DeliveryResult> {
+    if (this.config.get<string>('WHATSAPP_ALERTS_ENABLED') === 'false') {
+      return { status: 'SKIPPED', error: 'WHATSAPP_ALERTS_ENABLED=false' };
+    }
 
     const token = this.config.get<string>('WHATSAPP_TOKEN')?.trim();
     const phoneNumberId = this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID')?.trim();
-    const recipients = parseList(this.config.get<string>('WHATSAPP_TO'));
 
-    if (!token || !phoneNumberId || recipients.length === 0) {
-      this.logger.debug('Alertas por WhatsApp sin configurar; se omite envio.');
-      return;
+    if (!token || !phoneNumberId) {
+      this.logger.log(`[SIN WHATSAPP] Mensaje para ${to}: ${message.subject}`);
+      return { status: 'SKIPPED', error: 'WhatsApp sin configurar' };
     }
 
     const version = this.config.get<string>('WHATSAPP_GRAPH_API_VERSION')?.trim() || 'v22.0';
     const url = `https://graph.facebook.com/${version}/${phoneNumberId}/messages`;
 
-    await Promise.all(
-      recipients.map(async (to) => {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), this.timeoutMs());
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs());
 
-        let response: Response;
-        try {
-          response = await fetch(url, {
-            method: 'POST',
-            signal: controller.signal,
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              messaging_product: 'whatsapp',
-              to,
-              type: 'text',
-              text: {
-                preview_url: false,
-                body: message.text,
-              },
-            }),
-          });
-        } finally {
-          clearTimeout(timeout);
-        }
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to,
+          type: 'text',
+          text: { preview_url: false, body: message.text },
+        }),
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
 
-        if (!response.ok) {
-          const body = await response.text();
-          throw new Error(`WhatsApp API respondio ${response.status}: ${body.slice(0, 300)}`);
-        }
-      }),
-    );
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`WhatsApp API respondio ${response.status}: ${body.slice(0, 300)}`);
+    }
 
-    this.logger.log(`Alerta por WhatsApp enviada a ${recipients.join(', ')}`);
+    this.logger.log(`Alerta por WhatsApp enviada a ${to}`);
+    return { status: 'SENT' };
   }
 
   private timeoutMs() {
@@ -141,10 +172,28 @@ type AlertMessage = {
   html?: string;
 };
 
-function buildIncidentMessage(incident: IncidentAlert, appUrl?: string): AlertMessage {
-  const subject = `[NextWave] Risk Alert - Severity ${incident.severity}`;
+function buildIncidentMessage(
+  incident: IncidentAlert,
+  appUrl: string | undefined,
+  context: AlertContext,
+): AlertMessage {
+  const escalationTag =
+    context.escalatedFrom !== undefined
+      ? ` - ESCALADO (nivel ${context.level}/${context.totalLevels})`
+      : '';
+  const subject = `[NextWave] Risk Alert - Severity ${incident.severity}${escalationTag}`;
   const text = [
     `${subject} - Action required`,
+    '',
+    `Para: ${context.recipientName} (${context.role})`,
+    `Por que te llega: ${context.routingReason}`,
+    `Nivel de escalamiento: ${context.level}/${context.totalLevels} - ${context.levelLabel}`,
+    context.escalatedFrom !== undefined
+      ? `Escalado desde el nivel ${context.escalatedFrom} por falta de acuse de recibo.`
+      : '',
+    context.nextEscalationAt
+      ? `Si nadie acusa recibo, escala de nuevo a las ${context.nextEscalationAt.toISOString()}.`
+      : 'Este es el ultimo nivel de la politica.',
     '',
     incident.summaryExec ?? 'Se detecto una degradacion de pagos.',
     '',
@@ -164,7 +213,7 @@ function buildIncidentMessage(incident: IncidentAlert, appUrl?: string): AlertMe
   return {
     subject,
     text: text.join('\n'),
-    html: buildIncidentHtml(incident, appUrl),
+    html: buildIncidentHtml(incident, appUrl, context),
   };
 }
 
@@ -179,7 +228,11 @@ function formatUsd(cents: number): string {
   return `$${(cents / 100).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 }
 
-function buildIncidentHtml(incident: IncidentAlert, appUrl?: string): string {
+function buildIncidentHtml(
+  incident: IncidentAlert,
+  appUrl: string | undefined,
+  context: AlertContext,
+): string {
   const tone = severityTone(incident.severity);
   const segmentRows = incident.fingerprint
     .split('|')
@@ -218,8 +271,9 @@ function buildIncidentHtml(incident: IncidentAlert, appUrl?: string): string {
 
             <tr>
               <td style="padding:26px 28px 12px;">
-                <p style="margin:0; font-size:15px; line-height:1.6;">Hola Yuno Admin,</p>
-                <p style="margin:10px 0 0; font-size:15px; line-height:1.6;">Se detecto una caida de conversion que requiere revision del equipo de operaciones.</p>
+                <p style="margin:0; font-size:15px; line-height:1.6;">Hola ${escapeHtml(context.recipientName)},</p>
+                <p style="margin:10px 0 0; font-size:15px; line-height:1.6;">${escapeHtml(context.routingReason)}</p>
+                <p style="margin:10px 0 0; font-size:13px; line-height:1.6; color:#6b7280;">Nivel ${context.level} de ${context.totalLevels} &middot; ${escapeHtml(context.levelLabel)}${context.escalatedFrom !== undefined ? ` &middot; escalado desde el nivel ${context.escalatedFrom}` : ''}</p>
               </td>
             </tr>
 

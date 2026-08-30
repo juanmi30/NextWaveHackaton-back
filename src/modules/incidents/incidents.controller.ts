@@ -1,4 +1,5 @@
-import { Controller, Get, Param, Patch, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
+import { AcknowledgeAlertDto } from '../alerts/dto/acknowledge-alert.dto.js';
 import { QueryIncidentsDto } from './dto/query-incidents.dto.js';
 import { IncidentsService } from './incidents.service.js';
 
@@ -27,8 +28,8 @@ export class IncidentsController {
   }
 
   @Patch(':id/acknowledge')
-  acknowledge(@Param('id') id: string) {
-    return this.incidents.acknowledge(id);
+  acknowledge(@Param('id') id: string, @Body() dto: AcknowledgeAlertDto) {
+    return this.incidents.acknowledge(id, dto?.recipientId);
   }
 
   @Patch(':id/resolve')
