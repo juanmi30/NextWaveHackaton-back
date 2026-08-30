@@ -105,8 +105,7 @@ export class TransactionsService {
       failureReason:
         dto.status === 'APPROVED'
           ? null
-          : classification?.code ??
-            deriveFailureReason(dto.status, dto.declineCode, dto.errorType),
+          : classification?.code ?? deriveFailureReason(dto.status, dto.declineCode, dto.errorType),
       status: dto.status,
       declineCode: dto.declineCode ?? null,
       errorType: dto.errorType ?? null,
