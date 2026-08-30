@@ -286,6 +286,9 @@ export class AgentService {
     if (parsed.data.incidentId !== incidentId) {
       throw new InternalServerErrorException('OpenAI returned a diagnosis for a different incident');
     }
+    if (containsSpanishUserFacingCopy(parsed.data)) {
+      throw new InternalServerErrorException('OpenAI returned non-English user-facing copy');
+    }
 
     return enrichDiagnosis(enforceCanonicalIncidentImpact(parsed.data, incident), incident);
   }
@@ -293,6 +296,26 @@ export class AgentService {
   private emit(subscriber: Subscriber<MessageEvent>, event: AgentStreamEvent) {
     if (!subscriber.closed) subscriber.next({ data: event });
   }
+}
+
+function containsSpanishUserFacingCopy(diagnosis: {
+  rootCause: { statement: string } | null;
+  evidence: Array<{ statement: string }>;
+  recommendation: { action: string };
+  summaries: { operations: string; executive: string };
+}) {
+  const prose = [
+    diagnosis.rootCause?.statement,
+    ...diagnosis.evidence.map((row) => row.statement),
+    diagnosis.recommendation.action,
+    diagnosis.summaries.operations,
+    diagnosis.summaries.executive,
+  ].filter((value): value is string => Boolean(value));
+  return prose.some((value) =>
+    /\b(confianza|caída|intentos|evidencia insuficiente|esperado|observado|recomendación|incidente|degradación|segmento|desde|aproximadamente)\b/iu.test(
+      value,
+    ),
+  );
 }
 
 function now() {

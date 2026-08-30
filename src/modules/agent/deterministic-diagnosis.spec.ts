@@ -11,6 +11,8 @@ function incident(root = true) {
   };
 }
 
+const SPANISH_COPY = /Confianza|caída|intentos|evidencia insuficiente/i;
+
 describe('buildDeterministicDiagnosis', () => {
   it('uses exact canonical stored impact', () => {
     expect(buildDeterministicDiagnosis(incident(), { isRecurrence: false, previousOccurrences: [] }).impact)
@@ -32,8 +34,32 @@ describe('buildDeterministicDiagnosis', () => {
   });
 
   it('returns insufficient evidence with null root cause when root evidence is absent', () => {
-    expect(buildDeterministicDiagnosis(incident(false), { isRecurrence: false, previousOccurrences: [] }))
-      .toMatchObject({ evidenceStatus: 'INSUFFICIENT', rootCause: null });
+    const diagnosis = buildDeterministicDiagnosis(
+      incident(false),
+      { isRecurrence: false, previousOccurrences: [] },
+    );
+    expect(diagnosis).toMatchObject({ evidenceStatus: 'INSUFFICIENT', rootCause: null });
+    expect(JSON.stringify(diagnosis)).not.toMatch(SPANISH_COPY);
+  });
+
+  it('returns English copy even when legacy stored incident prose is Spanish', () => {
+    const stored = {
+      ...incident(),
+      summaryOps: 'Caída de aprobación sobre 100 intentos.',
+      summaryExec: 'Incidente activo.',
+      recommendation: 'Recomendación manual.',
+      confidenceStatement: 'Confianza alta sobre el segmento.',
+    };
+    const diagnosis = buildDeterministicDiagnosis(stored, {
+      isRecurrence: false,
+      previousOccurrences: [],
+    });
+
+    expect(diagnosis.rootCause?.statement).toContain('Stored evidence isolates');
+    expect(diagnosis.recommendation.action).toContain('Review');
+    expect(diagnosis.summaries.operations).toContain('Expected approval rate');
+    expect(diagnosis.summaries.executive).toContain('Payment incident');
+    expect(JSON.stringify(diagnosis)).not.toMatch(SPANISH_COPY);
   });
 
   it('always requires human approval and uses conservative fallback text', () => {
