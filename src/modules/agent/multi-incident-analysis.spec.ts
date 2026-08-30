@@ -47,7 +47,14 @@ function diagnosis(id: string, country: string): EnrichedAgentDiagnosis {
     recurrence: { isRecurrence: false, previousOccurrenceCount: 0 },
     recommendation: { action: 'Investigate manually', requiresHumanApproval: true },
     summaries: { operations: `${id} operations`, executive: `${id} executive` },
-    confidenceAnalysis: { score: 0.9, level: 'HIGH', factors: [], limitations: [] },
+    confidenceAnalysis: {
+      detectorConfidence: 0.9,
+      rootCauseConfidence: 0.9,
+      score: 0.9,
+      level: 'HIGH',
+      factors: [],
+      limitations: [],
+    },
     ruledOutHypotheses: [],
     counterfactualImpact: {
       estimatedRecoverableApprovalsPerMinute: 1,

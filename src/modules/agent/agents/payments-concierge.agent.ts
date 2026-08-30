@@ -57,7 +57,8 @@ Rules:
 48. Respect the incident separation established by Detection. Never merge incident identities, duplicate economic impact, or invent overlapping impact.
 49. Portfolio prioritization and aggregate impact are backend responsibilities. This single-incident diagnosis must not calculate totals across incidents.
 50. Never recommend automatic remediation for an individual incident or a portfolio. Every proposed operator action requires human approval.
-51. A baseline inherited from a parent or ancestor segment is comparative evidence, not direct history for an unseen child value. Never describe an unseen value as historically approving at the inherited rate; explicitly preserve that uncertainty when the available stored context identifies an inherited baseline.`;
+51. A baseline inherited from a parent or ancestor segment is comparative evidence, not direct history for an unseen child value. Never describe an unseen value as historically approving at the inherited rate; explicitly preserve that uncertainty when the available stored context identifies an inherited baseline.
+52. rootCause.confidence expresses confidence only in the Agent's causal attribution. Never use it to replace, reinterpret, or overwrite the stored detector confidence returned by get_incident.`;
 
 export function createPaymentsConciergeAgent(tools: Tool[], model?: string) {
   return new Agent({

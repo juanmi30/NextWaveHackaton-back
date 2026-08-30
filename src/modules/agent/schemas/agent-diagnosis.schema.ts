@@ -77,6 +77,8 @@ export const AgentDiagnosisSchema = AgentDiagnosisObjectSchema.superRefine(valid
 
 export const EnrichedAgentDiagnosisSchema = AgentDiagnosisObjectSchema.extend({
   confidenceAnalysis: z.object({
+    detectorConfidence: z.number().min(0).max(1).nullable(),
+    rootCauseConfidence: z.number().min(0).max(1).nullable(),
     score: z.number().min(0).max(1),
     level: z.enum(['LOW', 'MEDIUM', 'HIGH']),
     factors: z.array(z.object({

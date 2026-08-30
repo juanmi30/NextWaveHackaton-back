@@ -32,7 +32,12 @@ function diagnosis(sufficient = true): AgentDiagnosis {
   };
 }
 
-function incident(options: { control?: string; averageTicketCents?: number; root?: boolean } = {}) {
+function incident(options: {
+  control?: string;
+  averageTicketCents?: number;
+  root?: boolean;
+  detectorConfidence?: number;
+} = {}) {
   const evidence = options.control === undefined ? [] : [{
     dimension: 'controlSibling',
     dimensionValue: options.control,
@@ -61,7 +66,7 @@ function incident(options: { control?: string; averageTicketCents?: number; root
       observedRate: 0.41,
       baselineAttempts: 500,
       observedAttempts: 180,
-      confidence: 0.77,
+      confidence: options.detectorConfidence ?? 0.77,
       evidence,
     }],
   };
@@ -74,7 +79,12 @@ describe('enrichDiagnosis', () => {
       incident({ control: 'country=BR|provider=Stripe' }),
     );
 
-    expect(result.confidenceAnalysis).toMatchObject({ score: 0.82, level: 'HIGH' });
+    expect(result.confidenceAnalysis).toMatchObject({
+      detectorConfidence: 0.77,
+      rootCauseConfidence: 0.82,
+      score: 0.77,
+      level: 'HIGH',
+    });
     expect(result.ruledOutHypotheses).toHaveLength(1);
     expect(result.ruledOutHypotheses[0].controlScope).toEqual({
       merchant: null, provider: 'Stripe', method: null, country: 'BR',
@@ -98,6 +108,48 @@ describe('enrichDiagnosis', () => {
     expect(result.ruledOutHypotheses).toEqual([]);
     expect(result.diagnosisTrace.some((step) => step.type === 'ROOT_CAUSE')).toBe(false);
     expect(result.diagnosisTrace.at(-1)?.type).toBe('INSUFFICIENT_EVIDENCE');
+  });
+
+  it('preserves positive detector confidence when Agent root-cause confidence is zero', () => {
+    const baseDiagnosis = diagnosis();
+    baseDiagnosis.rootCause!.confidence = 0;
+
+    const result = enrichDiagnosis(baseDiagnosis, incident({ detectorConfidence: 0.8415 }));
+
+    expect(result.confidenceAnalysis).toMatchObject({
+      detectorConfidence: 0.8415,
+      rootCauseConfidence: 0,
+      score: 0.8415,
+      level: 'HIGH',
+    });
+    expect(result.rootCause?.confidence).toBe(0);
+  });
+
+  it('keeps valid Agent root-cause confidence separate from detector confidence', () => {
+    const result = enrichDiagnosis(diagnosis(), incident({ detectorConfidence: 0.64 }));
+
+    expect(result.confidenceAnalysis).toMatchObject({
+      detectorConfidence: 0.64,
+      rootCauseConfidence: 0.82,
+      score: 0.64,
+      level: 'MEDIUM',
+    });
+    expect(result.rootCause?.confidence).toBe(0.82);
+  });
+
+  it('does not derive display confidence from sufficient evidence when detector confidence is absent', () => {
+    const result = enrichDiagnosis(diagnosis(), {
+      ...incident(),
+      diagnoses: [],
+    });
+
+    expect(result.evidenceStatus).toBe('SUFFICIENT');
+    expect(result.confidenceAnalysis).toMatchObject({
+      detectorConfidence: null,
+      rootCauseConfidence: 0.82,
+      score: 0,
+      level: 'LOW',
+    });
   });
 
   it('returns nullable approval estimates when average ticket is zero', () => {

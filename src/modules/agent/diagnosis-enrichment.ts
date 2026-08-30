@@ -45,7 +45,13 @@ export function enrichDiagnosis(
     .filter((row) => row.dimension === 'controlSibling')
     .map((row) => ({ row, scope: parseDiagnosticDimensions(row.dimensionValue) }));
   const validControls = controls.filter(({ scope }) => hasDimensions(scope));
-  const score = clamp(baseDiagnosis.rootCause?.confidence ?? latest?.confidence ?? 0);
+  const detectorConfidence = latest ? clamp(latest.confidence) : null;
+  const rootCauseConfidence = baseDiagnosis.rootCause
+    ? clamp(baseDiagnosis.rootCause.confidence)
+    : null;
+  // score and level remain the backward-compatible display fields and now have
+  // one stable meaning: confidence in the stored detector diagnosis.
+  const score = detectorConfidence ?? 0;
   const minSampleSize = readMinSampleSize(incident.detectionRun?.params);
   const limitations = buildLimitations(baseDiagnosis, latest, validControls.length, minSampleSize);
   const factors = buildFactors(baseDiagnosis, latest, validControls.length, minSampleSize);
@@ -57,6 +63,8 @@ export function enrichDiagnosis(
   return EnrichedAgentDiagnosisSchema.parse({
     ...baseDiagnosis,
     confidenceAnalysis: {
+      detectorConfidence,
+      rootCauseConfidence,
       score,
       level: score >= 0.7 ? 'HIGH' : score >= 0.4 ? 'MEDIUM' : 'LOW',
       factors,

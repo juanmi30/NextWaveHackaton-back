@@ -111,6 +111,12 @@ describe('AgentService streaming analysis', () => {
       lossPerMinuteCents: 346_210,
       startedAt: '2026-08-29T12:00:00.000Z',
     });
+    expect(diagnosisEvent?.diagnosis?.confidenceAnalysis).toMatchObject({
+      detectorConfidence: 0.8,
+      rootCauseConfidence: null,
+      score: 0.8,
+      level: 'HIGH',
+    });
   });
 
   it('emits deterministic diagnosis and completes when the run fails', async () => {
