@@ -25,7 +25,7 @@ import {
   enforceCanonicalIncidentImpact,
   getCanonicalIncidentImpact,
 } from './canonical-incident-impact.js';
-import type { AgentDiagnosis } from './schemas/agent-diagnosis.schema.js';
+import type { EnrichedAgentDiagnosis } from './schemas/agent-diagnosis.schema.js';
 import type { AgentStreamEvent } from './agent-stream.types.js';
 import {
   advanceAgentPhase,
@@ -34,6 +34,7 @@ import {
 } from './agent-stream.mapper.js';
 import { calculateIncidentPriority } from '../../common/detection-metrics.js';
 import { buildDeterministicDiagnosis } from './deterministic-diagnosis.js';
+import { enrichDiagnosis } from './diagnosis-enrichment.js';
 
 type LoadedIncident = Awaited<ReturnType<IncidentsService['findOne']>>;
 type ActiveIncident = Awaited<ReturnType<IncidentsService['findAll']>>[number];
@@ -248,7 +249,7 @@ export class AgentService {
 
   private async fallbackDiagnosis(incident: LoadedIncident) {
     const history = await this.incidents.history(incident.id);
-    return buildDeterministicDiagnosis(incident, history);
+    return enrichDiagnosis(buildDeterministicDiagnosis(incident, history), incident);
   }
 
   private async emitFallback(
@@ -277,7 +278,7 @@ export class AgentService {
     finalOutput: unknown,
     incidentId: string,
     incident: LoadedIncident,
-  ): AgentDiagnosis {
+  ): EnrichedAgentDiagnosis {
     const parsed = AgentDiagnosisSchema.safeParse(finalOutput);
     if (!parsed.success) {
       throw new InternalServerErrorException('OpenAI returned an invalid structured diagnosis');
@@ -286,7 +287,7 @@ export class AgentService {
       throw new InternalServerErrorException('OpenAI returned a diagnosis for a different incident');
     }
 
-    return enforceCanonicalIncidentImpact(parsed.data, incident);
+    return enrichDiagnosis(enforceCanonicalIncidentImpact(parsed.data, incident), incident);
   }
 
   private emit(subscriber: Subscriber<MessageEvent>, event: AgentStreamEvent) {
@@ -392,7 +393,7 @@ function determineCorrelation(incidents: MultiIncidentAnalysis['incidents']) {
       };
 }
 
-function discriminatingKey(diagnosis: AgentDiagnosis) {
+function discriminatingKey(diagnosis: EnrichedAgentDiagnosis) {
   if (!diagnosis.rootCause) return null;
   const dimensions = Object.entries(diagnosis.rootCause.dimensions).filter(
     (entry): entry is [string, string] => entry[1] !== null,

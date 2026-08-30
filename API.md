@@ -145,6 +145,14 @@ Sin `OPENAI_API_KEY`, ante timeout (`AGENT_TIMEOUT_MS`, default 20000), error de
 proveedor o salida invalida, devuelve un diagnostico determinista construido con
 el Incident, su ultimo diagnostico/evidencia e historial almacenados.
 
+La respuesta publica agrega `confidenceAnalysis`, `ruledOutHypotheses`,
+`counterfactualImpact` y `diagnosisTrace`. Estos campos se calculan de forma
+determinista despues de validar la salida del agente: usan exclusivamente el
+Incident, su diagnosis/evidence persistida y los parametros de Detection. OpenAI
+no calcula confidence explicable ni impacto contrafactual. Los controles sanos
+solo descartan generalizaciones y el trace expone evidencia observable, no
+razonamiento privado.
+
 El endpoint `stream` usa SSE (`text/event-stream`) y emite solamente actividad
 publica: `run_started`, `phase_changed`, `tool_started`, `tool_completed`,
 `diagnosis`, `run_completed` o `error`. No expone argumentos/resultados de tools,
