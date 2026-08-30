@@ -462,6 +462,7 @@ export class DetectionService {
     if (!existing) {
       // Abre la cadena de escalamiento. Solo para incidentes nuevos: un
       // diagnostico refinado sobre el mismo incidente no reinicia los relojes.
+      const routingFingerprint = alertRoutingFingerprint(fingerprint, declineReasons);
       await bestEffort(
         () => this.escalation.openForIncident({
           id: incidentId,
@@ -469,20 +470,12 @@ export class DetectionService {
           startedAt,
           detectedAt: now,
           ...metrics,
+          fingerprint: routingFingerprint,
         }),
         (error) => this.logger.warn(
           `Incident ${incidentId} persisted but escalation could not be opened: ${safeError(error)}`,
         ),
       );
-      const routingFingerprint = alertRoutingFingerprint(fingerprint, declineReasons);
-      await this.escalation.openForIncident({
-        id: incidentId,
-        anchorFingerprint,
-        startedAt,
-        detectedAt: now,
-        ...metrics,
-        fingerprint: routingFingerprint,
-      });
     }
 
     return {
