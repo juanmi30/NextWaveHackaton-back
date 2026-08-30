@@ -73,6 +73,11 @@ GET    /api/detection/quiet-stats?hours=24
 `quiet-stats` devuelve cuantas corridas terminaron sin alertar. Es la
 evidencia de que el sistema vigila sin generar falsas alarmas.
 
+`detection/run` incluye `slicesWithSample`, `slicesWithUsableBaseline`,
+`slicesWithoutBaseline` y `slicesStatisticallyEvaluated`. Cuando no puede
+evaluar el trafico contra historico responde `INSUFFICIENT_EVIDENCE` y agrega
+`evidenceReason`; `NO_ANOMALY` implica que al menos un slice si fue evaluado.
+
 Cuando una corrida crea un incidente nuevo, el backend intenta enviar alertas
 por correo y WhatsApp si los canales estan configurados en variables de entorno.
 La deteccion no falla si un canal externo no esta disponible.
@@ -109,6 +114,7 @@ POST   /api/fx/rates/seed
 ### Payments Diagnostic Concierge
 ```
 POST   /api/agent/incidents/:incidentId/analyze
+POST   /api/agent/incidents/analyze-active
 GET    /api/agent/incidents/:incidentId/analyze/stream
 ```
 
@@ -121,6 +127,70 @@ El endpoint `stream` usa SSE (`text/event-stream`) y emite solamente actividad
 publica: `run_started`, `phase_changed`, `tool_started`, `tool_completed`,
 `diagnosis`, `run_completed` o `error`. No expone argumentos/resultados de tools,
 mensajes internos ni eventos raw del modelo.
+
+`POST /api/agent/incidents/analyze-active` acepta un body opcional
+`{ "limit": 10 }`. Lista incidentes `OPEN`, ejecuta un diagnostico independiente
+por incidente con concurrencia limitada y devuelve prioridad operacional,
+impacto economico agregado canonico y una correlacion conservadora. Un fallo
+individual se reporta como `FAILED` sin descartar los demas resultados. El
+agente multi-incidente diagnostica y prioriza; nunca remedia, modifica trafico,
+acknowledge ni resuelve incidentes. El SSE multi-incidente queda pendiente; el
+stream individual conserva su contrato actual.
+
+### Live transaction monitoring
+
+```text
+POST   /api/live/start
+POST   /api/live/stop
+GET    /api/live/status
+GET    /api/live/events                 # SSE
+POST   /api/live/degradations
+GET    /api/live/degradations
+DELETE /api/live/degradations/:id
+```
+
+El monitor permanece `STOPPED` al iniciar NestJS. Requiere transacciones
+historicas y baselines; si faltan responde `409 LIVE_MONITOR_NOT_READY`. Puede
+usarse `{"autoSeed":true}` explicitamente, sin resetear datos existentes.
+
+Ejemplo de inicio:
+
+```json
+{
+  "tickIntervalMs": 1000,
+  "transactionsPerTick": 50,
+  "detectionIntervalMs": 5000,
+  "detectionWindowMinutes": 5,
+  "randomSeed": 1337
+}
+```
+
+Las degradaciones son runtime-only y aceptan cualquier subconjunto de las
+dimensiones de pagos. Las dimensiones omitidas son wildcards. Si varias reglas
+coinciden, gana la mas especifica; en empate gana la menor `approvalRate`. Cada
+regla genera tambien trafico dirigido, permitiendo combinaciones nunca vistas.
+
+`/api/live/events` emite eventos agregados, nunca una transaccion por evento:
+`monitor_started`, `monitor_stopped`, `transaction_batch`,
+`degradation_started`, `degradation_expired`, `degradation_removed`,
+`detection_started`, `detection_completed`, `detection_skipped`,
+`incident_detected` y `heartbeat`.
+
+#### LIVE DEMO FLOW
+
+```bash
+curl -X POST "$BASE/demo/seed?reset=true&historyHours=72&density=5"
+curl -X POST "$BASE/live/start" -H 'Content-Type: application/json' -d '{}'
+curl "$BASE/live/events"
+curl -X POST "$BASE/live/degradations" -H 'Content-Type: application/json' \
+  -d '{"dimensions":{"provider":"Adyen","country":"BR"},"approvalRate":0.35,"durationSeconds":60}'
+curl "$BASE/live/status"
+curl -X POST "$BASE/live/stop"
+```
+
+El monitor usa timers locales y debe ejecutarse con una sola replica durante el
+hackathon. `LIVE_MONITOR_AUTO_START=false` es el default. No realiza routing,
+remediation ni cleanup automatico de transacciones.
 
 ## Guion de demo
 
@@ -148,6 +218,25 @@ curl -X POST "$BASE/detection/run" -H 'Content-Type: application/json' -d '{"win
 
 ## Decisiones y por que
 
+### Calidad operacional de Detection
+
+`POST /api/detection/run` aplica cuatro gates antes de considerar un slice:
+muestra minima, drop absoluto, significancia estadistica y confianza. Las
+anomalias moderadas requieren por defecto dos runs consecutivos con el mismo
+`anchorFingerprint`; una anomalía severa puede confirmarse en el primer run.
+`confirmationRuns` permite ajustar esa confirmacion.
+
+El baseline se selecciona de forma jerarquica: segmento y franja temporal,
+promedio horario, historico general, ancestors equivalentes y finalmente
+platform. La respuesta de cada incidente incluye `baselineSource`, sample,
+rate/variance, dimensiones coincidentes y profundidad de fallback.
+
+Los incidentes activos se deduplican por anchor y cada refinamiento agrega una
+version de diagnosis. La recuperacion requiere por defecto dos runs sanos
+(`recoveryRuns`) o superar el timeout conservador existente. La prioridad es
+determinista y economica: `lossPerMinuteCents` domina, seguida por severity,
+confidence y lost approvals. Los campos nuevos son aditivos.
+
 **Dimensiones desnormalizadas, sin catalogos con FK.** Una transaccion con un
 banco emisor desconocido entraria en violacion de foreign key y el sistema se
 quedaria ciego durante la prueba de fuego. En produccion, con catalogo estable,
@@ -161,19 +250,18 @@ timeout": veria la caida sin la dimension que la explica.
 del denominador, un proveedor colgado no baja la conversion, baja el volumen, y
 el incidente se vuelve invisible.
 
-**Baselines por hora del dia y dia de semana.** Comparar un domingo de madrugada
-contra el promedio de la semana genera falsas alarmas garantizadas. El fallback
-degrada a promedio del segmento cuando la franja exacta no tiene historico.
+**Baselines jerarquicos y temporales.** Se intenta segmento y franja exactos,
+misma hora en otros dias, promedio del segmento, ancestors cada vez mas generales
+y finalmente plataforma. La procedencia penaliza confidence cuando el fallback
+es menos especifico.
 
 **`amountUsdCents` congelado en ingesta ademas de `FxRate`.** Sumar centavos de
 COP, MXN y BRL da un numero sin sentido. Guardar el valor convertido evita que
 una fila de tasa faltante rompa la cifra de la vista ejecutiva en mitad de la demo.
 
-**Poda por cobertura, no por refinamiento.** Una sola caida genera decenas de
-explicaciones ciertas ("bajo en Adyen", "bajo en CARD", "bajo en Brasil"). Se
-conserva la mas especifica y se descartan las que podrian estar describiendo las
-mismas transacciones; solo las mutuamente excluyentes se vuelven incidentes
-aparte. Sin esto, dos incidentes reales aparecen como veinte.
+**Poda por familias demostrables.** Una sola caida genera varias explicaciones.
+Se fusionan cuando existe refinamiento padre-hijo o un candidato mas especifico
+que conecta ambas; la mera ausencia de conflicto ya no fusiona incidentes.
 
 **`anchorFingerprint` estable + `fingerprint` mutable.** El diagnostico se afina
 sobre el mismo incidente en vez de duplicarlo, y el historial de versiones deja
@@ -188,10 +276,8 @@ mitad de la demo y no requiere infraestructura adicional.
 
 ## Limitaciones conocidas
 
-- Un valor de dimension **nunca visto** no tiene baseline, asi que el diagnostico
-  se ancla en la dimension padre que si lo tiene. Detecta, pero con menos
-  especificidad. Reconstruir baselines tras la inyeccion lo resuelve.
-- La poda por cobertura puede fusionar dos incidentes reales si ambos se explican
-  solo a profundidad 1 y no comparten ninguna dimension en conflicto.
+- Un valor de dimension nunca visto puede evaluarse contra un ancestor o contra
+  plataforma, pero esa evidencia reduce confidence y no demuestra por si sola
+  que el valor nuevo sea la causa.
 - `IncidentObservation` (serie temporal por incidente) no esta implementada: la
   grafica se deriva de `/analytics/timeseries` con las dimensiones del diagnostico.

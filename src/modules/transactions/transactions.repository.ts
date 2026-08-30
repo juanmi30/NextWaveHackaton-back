@@ -50,6 +50,25 @@ export class TransactionsRepository {
     });
   }
 
+  async aggregateDeclineReasons(dimensions: DimensionMap, from: Date, to: Date) {
+    const rows = await this.prisma.transaction.groupBy({
+      by: ['failureReason'],
+      where: {
+        ...toWhere(dimensions),
+        occurredAt: { gte: from, lt: to },
+        status: 'DECLINED',
+        failureReason: { not: null },
+      },
+      _count: { _all: true },
+      orderBy: { _count: { failureReason: 'desc' } },
+    });
+    return Object.fromEntries(
+      rows
+        .filter((row) => row.failureReason !== null)
+        .map((row) => [row.failureReason!, row._count._all]),
+    );
+  }
+
   /**
    * Agregacion generica sobre CUALQUIER combinacion de dimensiones.
    *

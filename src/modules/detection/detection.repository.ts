@@ -10,10 +10,25 @@ export class DetectionRepository {
     return this.prisma.detectionRun.create({ data });
   }
 
-  finishRun(id: string, outcome: DetectionOutcome, combosEvaluated: number, durationMs: number) {
+  finishRun(
+    id: string,
+    outcome: DetectionOutcome,
+    combosEvaluated: number,
+    durationMs: number,
+    params?: Prisma.InputJsonValue,
+  ) {
     return this.prisma.detectionRun.update({
       where: { id },
-      data: { outcome, combosEvaluated, durationMs, finishedAt: new Date() },
+      data: { outcome, combosEvaluated, durationMs, finishedAt: new Date(), ...(params ? { params } : {}) },
+    });
+  }
+
+  findRecentRuns(excludeId: string, take: number, since?: Date) {
+    return this.prisma.detectionRun.findMany({
+      where: { id: { not: excludeId }, ...(since ? { finishedAt: { gte: since } } : {}) },
+      select: { id: true, params: true, outcome: true, finishedAt: true },
+      orderBy: { finishedAt: 'desc' },
+      take,
     });
   }
 
@@ -46,6 +61,10 @@ export class DetectionRepository {
       insufficientEvidence: insufficient,
       incidentsFound: found,
       quietRatio: total > 0 ? Number((noAnomaly / total).toFixed(4)) : 0,
+      totalRuns: total,
+      quietRuns: noAnomaly,
+      incidentRuns: found,
+      insufficientEvidenceRuns: insufficient,
     };
   }
 

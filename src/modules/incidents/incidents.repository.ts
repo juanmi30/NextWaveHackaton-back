@@ -18,7 +18,7 @@ export class IncidentsRepository {
     return this.prisma.incident.findMany({
       where,
       include: WITH_LATEST_DIAGNOSIS,
-      orderBy: [{ severity: 'desc' }, { lossPerMinuteCents: 'desc' }, { detectedAt: 'desc' }],
+      orderBy: [{ lossPerMinuteCents: 'desc' }, { severity: 'desc' }, { detectedAt: 'desc' }],
       take,
     });
   }
@@ -73,6 +73,21 @@ export class IncidentsRepository {
     return this.prisma.incident.updateMany({
       where: { status: 'OPEN', lastSeenAt: { lt: before } },
       data: { status: 'RESOLVED', resolvedAt: new Date() },
+    });
+  }
+
+  findActive() {
+    return this.prisma.incident.findMany({
+      where: { status: { in: ['OPEN', 'ACKNOWLEDGED'] } },
+      select: { id: true, anchorFingerprint: true, lastSeenAt: true },
+    });
+  }
+
+  resolveMany(ids: string[], resolvedAt: Date) {
+    if (ids.length === 0) return Promise.resolve({ count: 0 });
+    return this.prisma.incident.updateMany({
+      where: { id: { in: ids }, status: { in: ['OPEN', 'ACKNOWLEDGED'] } },
+      data: { status: 'RESOLVED', resolvedAt },
     });
   }
 
