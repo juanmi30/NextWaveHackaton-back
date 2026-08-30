@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { EscalationService } from '../alerts/escalation.service.js';
 import {
   DIMENSIONS,
   buildSegmentKey,
@@ -58,7 +59,7 @@ export class DetectionService {
     private readonly baselines: BaselinesService,
     private readonly incidents: IncidentsRepository,
     private readonly runs: DetectionRepository,
-    private readonly alerts: AlertsService,
+    private readonly escalation: EscalationService,
   ) {}
 
   /**
@@ -420,7 +421,9 @@ export class DetectionService {
     } as Prisma.IncidentDiagnosisCreateInput);
 
     if (!existing) {
-      await this.alerts.notifyIncidentCreated({
+      // Abre la cadena de escalamiento. Solo para incidentes nuevos: un
+      // diagnostico refinado sobre el mismo incidente no reinicia los relojes.
+      await this.escalation.openForIncident({
         id: incidentId,
         anchorFingerprint,
         startedAt,
