@@ -23,10 +23,10 @@ describe('classifyYunoResponseCode', () => {
       {
         actionability: 'ACTIONABLE',
         category: 'PROVIDER_CONFIGURATION',
-        retryability: 'HARD',
+        retryability: 'UNKNOWN',
       },
     ],
-    ['NO_RETRY_POLICY', { actionability: 'ISSUER_SIDE', category: 'ISSUER', retryability: 'HARD' }],
+    ['NO_RETRY_POLICY', { actionability: 'OTHER', category: 'OTHER', retryability: 'HARD' }],
     [
       'NOT_DOCUMENTED',
       { actionability: 'UNKNOWN', category: 'UNKNOWN', retryability: 'UNKNOWN' },

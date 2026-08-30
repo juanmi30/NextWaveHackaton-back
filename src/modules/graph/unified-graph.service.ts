@@ -199,6 +199,11 @@ export class UnifiedGraphService {
           )
         : null;
 
+    const activeIncidentFallback =
+      highestPriorityIncident(
+        incidentOverlays,
+      );
+
     /*
      * Si alguien consulta un incidente RESOLVED,
      * igualmente lo dejamos disponible como contexto.
@@ -231,7 +236,15 @@ export class UnifiedGraphService {
       this.selectFocus(
         activeRouteEvaluations,
         focusIncidentOverlay,
+        activeIncidentFallback,
       );
+
+    const selectedIncidentOverlay =
+      focusIncidentOverlay ??
+      (selected?.source ===
+      'ACTIVE_INCIDENT_FALLBACK'
+        ? activeIncidentFallback
+        : null);
 
     const nodes: UnifiedNode[] = [
       {
@@ -697,7 +710,7 @@ export class UnifiedGraphService {
 
       data: {
         label:
-          focusIncidentOverlay !==
+          selectedIncidentOverlay !==
           null
             ? 'Observed incident + predictive risk'
 
@@ -740,7 +753,7 @@ export class UnifiedGraphService {
           selectedRouteIncidents,
 
         focusIncident:
-          focusIncidentOverlay,
+          selectedIncidentOverlay,
       },
     });
 
@@ -774,7 +787,7 @@ export class UnifiedGraphService {
 
       focus: {
         source:
-          focusIncidentOverlay !==
+          selectedIncidentOverlay !==
           null
             ? 'INCIDENT'
 
@@ -794,7 +807,7 @@ export class UnifiedGraphService {
          * el detector.
          */
         incidentScope:
-          focusIncidentOverlay
+          selectedIncidentOverlay
             ?.dimensions ??
           null,
 
@@ -880,6 +893,10 @@ export class UnifiedGraphService {
     focusIncident:
       UnifiedIncident |
       null,
+
+    activeIncidentFallback:
+      UnifiedIncident |
+      null,
   ):
     | {
         segment:
@@ -891,6 +908,7 @@ export class UnifiedGraphService {
         source:
           | 'ACTIVE_ROUTE_WITHIN_INCIDENT'
           | 'INCIDENT_SCOPE'
+          | 'ACTIVE_INCIDENT_FALLBACK'
           | 'HIGHEST_PREDICTED_RISK'
           | 'MOST_ACTIVE_ROUTE';
       }
@@ -1016,6 +1034,21 @@ export class UnifiedGraphService {
         )[0];
 
     if (!mostActive) {
+      if (
+        activeIncidentFallback
+      ) {
+        return {
+          segment:
+            activeIncidentFallback
+              .dimensions,
+
+          attempts: 0,
+
+          source:
+            'ACTIVE_INCIDENT_FALLBACK',
+        };
+      }
+
       return null;
     }
 
@@ -1146,6 +1179,18 @@ function predictionPayload(
       failureContext:
         result.failureContext,
 
+      temporal:
+        result.temporal ?? null,
+
+      featureVectorV2:
+        result.featureVectorV2 ?? null,
+
+      yunoFailureContext:
+        result.yunoFailureContext ?? null,
+
+      baselineMode:
+        result.baselineMode ?? null,
+
       approvalDropPp:
         null,
     };
@@ -1199,6 +1244,18 @@ function predictionPayload(
 
     failureContext:
       result.failureContext,
+
+    temporal:
+      result.temporal ?? null,
+
+    featureVectorV2:
+      result.featureVectorV2 ?? null,
+
+    yunoFailureContext:
+      result.yunoFailureContext ?? null,
+
+    baselineMode:
+      result.baselineMode ?? null,
 
     /*
      * Feature approvalDrop convertida
@@ -1592,6 +1649,41 @@ function toUnifiedIncidentFromDetail(
         ?.confidence ??
       null,
   };
+}
+
+function highestPriorityIncident(
+  incidents:
+    UnifiedIncident[],
+): UnifiedIncident | null {
+  return (
+    [...incidents]
+      .sort(
+        compareIncidentPriority,
+      )[0] ?? null
+  );
+}
+
+function compareIncidentPriority(
+  left: UnifiedIncident,
+  right: UnifiedIncident,
+) {
+  return (
+    (right.priorityScore ?? -1) -
+      (left.priorityScore ?? -1) ||
+    right.severity -
+      left.severity ||
+    right.lossPerMinuteCents -
+      left.lossPerMinuteCents ||
+    right.lostApprovals -
+      left.lostApprovals ||
+    (left.priorityRank ??
+      Number.MAX_SAFE_INTEGER) -
+      (right.priorityRank ??
+        Number.MAX_SAFE_INTEGER) ||
+    left.id.localeCompare(
+      right.id,
+    )
+  );
 }
 
 function buildSummary(

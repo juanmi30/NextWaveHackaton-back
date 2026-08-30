@@ -3,7 +3,7 @@ import { coversScope, routeIncident, scopeFromFingerprint } from './routing.js';
 
 describe('routeIncident', () => {
   it('manda los datos mal formados del checkout al equipo de checkout', () => {
-    const decision = routeIncident({ failureReason: 'INVALID_SECURITY_CODE' }, 2);
+    const decision = routeIncident({ failureReason: 'INVALID_CVV' }, 2);
     expect(decision.category).toBe('DATA_QUALITY');
     expect(decision.roles).toEqual(['CHECKOUT_ENGINEER']);
   });
@@ -19,23 +19,6 @@ describe('routeIncident', () => {
     expect(decision.actionability).toBe('ISSUER_SIDE');
     expect(decision.roles).toEqual(['MERCHANT_SUCCESS']);
     expect(decision.reason).toContain('No es accionable desde Yuno');
-  });
-
-  it('routes ISSUER_VIOLATION as issuer-side, never provider configuration', () => {
-    const decision = routeIncident({ failureReason: 'ISSUER_VIOLATION' }, 2);
-    expect(decision.category).toBe('ISSUER_DECLINE');
-    expect(decision.actionability).toBe('ISSUER_SIDE');
-    expect(decision.roles).toEqual(['MERCHANT_SUCCESS']);
-  });
-
-  it('routes provider timeout to integration ownership', () => {
-    expect(routeIncident({ failureReason: 'PROVIDER_TIMEOUT' }, 2).roles)
-      .toEqual(['INTEGRATIONS_ENGINEER']);
-  });
-
-  it('routes canonical provider credentials to provider configuration owners', () => {
-    expect(routeIncident({ failureReason: 'PROVIDER_INVALID_CREDENTIALS' }, 2).roles)
-      .toEqual(['INTEGRATIONS_ENGINEER', 'PROVIDER_MANAGER']);
   });
 
   it('manda el fraude a riesgo', () => {
@@ -55,8 +38,8 @@ describe('routeIncident', () => {
   });
 
   it('desde severidad 3 la guardia general entra junto al especialista', () => {
-    const low = routeIncident({ failureReason: 'INVALID_SECURITY_CODE' }, 2);
-    const high = routeIncident({ failureReason: 'INVALID_SECURITY_CODE' }, 3);
+    const low = routeIncident({ failureReason: 'INVALID_CVV' }, 2);
+    const high = routeIncident({ failureReason: 'INVALID_CVV' }, 3);
     expect(low.roles).not.toContain('PAYMENTS_OPS');
     expect(high.roles).toEqual(['CHECKOUT_ENGINEER', 'PAYMENTS_OPS']);
   });

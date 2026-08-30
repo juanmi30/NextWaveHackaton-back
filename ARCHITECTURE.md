@@ -63,8 +63,9 @@ Historical baseline      Current window
       WhatsApp / Email alert   AI / operator action
 ```
 
-Cuando Live Monitoring recibe de Detection un incidente confirmado nuevo, programa
-su diagnostico automatico de forma asincrona. Prediction permanece separado: una
+Cuando Live Monitoring recibe incidentes confirmados de Detection, Watchtower los
+reconcilia y programa diagnosticos asincronos con concurrencia limitada. Los
+incidentes `OPEN` se recuperan al reiniciar. Prediction permanece separado: una
 alerta temprana no crea un incidente ni inicia analisis de causa raiz.
 
 ## Module responsibilities

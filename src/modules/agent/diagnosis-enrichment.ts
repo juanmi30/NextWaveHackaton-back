@@ -5,8 +5,6 @@ import {
   type DiagnosticDimensions,
   type EnrichedAgentDiagnosis,
 } from './schemas/agent-diagnosis.schema.js';
-import { classifyTransaction } from '../../common/yuno-taxonomy.js';
-import { ownershipForFailureDomain } from '../../common/operational-ownership.js';
 
 type StoredEvidence = {
   dimension: string;
@@ -55,23 +53,6 @@ export function enrichDiagnosis(
   const approvalsPerMinute = incident.averageTicketCents > 0
     ? round2(incident.lossPerMinuteCents / incident.averageTicketCents)
     : null;
-  const responseCode =
-    baseDiagnosis.rootCause?.dimensions.failureReason ?? baseDiagnosis.affectedScope.failureReason;
-  const classification = responseCode ? classifyTransaction({ responseCode }) : null;
-  const declineIntelligence = classification
-    ? {
-        responseCode: classification.code,
-        transactionStatus: classification.transactionStatus,
-        declineType: classification.declineType,
-        failureDomain: classification.failureDomain,
-        actionability: classification.actionability,
-        retryAdvice: classification.retryAdvice,
-        unknownCode: classification.unknownCode,
-      }
-    : null;
-  const ownership = ownershipForFailureDomain(
-    declineIntelligence?.failureDomain ?? 'UNKNOWN',
-  );
 
   return EnrichedAgentDiagnosisSchema.parse({
     ...baseDiagnosis,
@@ -93,19 +74,6 @@ export function enrichDiagnosis(
       estimatedRecoverableRevenuePerHourCents: incident.lossPerMinuteCents * 60,
     },
     diagnosisTrace: trace,
-    declineIntelligence,
-    operationalOwnership: {
-      ...ownership,
-      basis: [
-        responseCode
-          ? `Canonical response code ${responseCode} maps to ${ownership.suspectedDomain}.`
-          : 'No failureReason is present in the supported root cause or affected scope.',
-        baseDiagnosis.rootCause
-          ? 'A supported root cause is present in the diagnosis.'
-          : 'No root cause was isolated from the available evidence.',
-      ],
-      requiresHumanApproval: true,
-    },
   });
 }
 

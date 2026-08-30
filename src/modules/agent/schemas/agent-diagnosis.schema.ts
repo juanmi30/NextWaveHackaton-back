@@ -116,38 +116,6 @@ export const EnrichedAgentDiagnosisSchema = AgentDiagnosisObjectSchema.extend({
     observedValue: z.number().nullable(),
     attempts: z.number().nullable(),
   })),
-  declineIntelligence: z.object({
-    responseCode: z.string(),
-    transactionStatus: z.enum([
-      'SUCCEEDED', 'WON', 'CREATED', 'PENDING', 'DECLINED', 'REJECTED',
-      'ERROR', 'EXPIRED', 'LOST', 'PREVENTED', 'UNKNOWN',
-    ]),
-    declineType: z.enum(['HARD', 'SOFT', 'N_A', 'UNKNOWN']),
-    failureDomain: z.enum([
-      'PROVIDER', 'PROVIDER_CONFIGURATION', 'PRE_PROVIDER', 'ISSUER',
-      'AUTHENTICATION_3DS', 'FRAUD_SCREENING', 'MERCHANT_DATA', 'OTHER', 'UNKNOWN',
-    ]),
-    actionability: z.enum(['ISSUER_SIDE', 'ACTIONABLE', 'LIMITED', 'UNKNOWN']),
-    retryAdvice: z.enum(['DO_NOT_RETRY', 'RETRY_LATER', 'UPDATE_INFORMATION', 'UNKNOWN']),
-    unknownCode: z.boolean(),
-  }).nullable(),
-  operationalOwnership: z.object({
-    suspectedDomain: z.enum([
-      'PROVIDER', 'PROVIDER_CONFIGURATION', 'PRE_PROVIDER', 'ISSUER',
-      'AUTHENTICATION_3DS', 'FRAUD_SCREENING', 'MERCHANT_DATA', 'OTHER', 'UNKNOWN',
-    ]),
-    primaryTeam: z.enum([
-      'PAYMENTS_OPS', 'PROVIDER_MANAGER', 'INTEGRATIONS_ENGINEER',
-      'MERCHANT_SUCCESS', 'CHECKOUT_ENGINEER', 'RISK_ANALYST',
-    ]),
-    supportingTeams: z.array(z.enum([
-      'PAYMENTS_OPS', 'PROVIDER_MANAGER', 'INTEGRATIONS_ENGINEER',
-      'MERCHANT_SUCCESS', 'CHECKOUT_ENGINEER', 'RISK_ANALYST',
-    ])),
-    statement: z.string(),
-    basis: z.array(z.string()),
-    requiresHumanApproval: z.literal(true),
-  }),
 }).superRefine(validateEvidenceStatus);
 
 export type AgentDiagnosis = z.infer<typeof AgentDiagnosisSchema>;

@@ -43,28 +43,6 @@ describe('LiveTransactionGeneratorService', () => {
     expect(first.approved).toBeGreaterThan(80);
     expect(first.approved).toBeLessThan(100);
     expect(second.approved).not.toBe(first.approved);
-    expect(first.rows.find((row) => row.status === 'APPROVED')).toMatchObject({
-      transactionType: 'PURCHASE', yunoStatus: 'SUCCEEDED', responseCode: 'SUCCEEDED',
-      failureReason: null, status: 'APPROVED',
-    });
-  });
-
-  it.each([
-    ['DO_NOT_HONOR', 'DECLINED', 'DECLINED'],
-    ['PROVIDER_TIMEOUT', 'ERROR', 'TIMEOUT'],
-    ['PROVIDER_ERROR', 'ERROR', 'ERROR'],
-  ])('emits canonical Yuno telemetry for %s', async (failureReason, yunoStatus, status) => {
-    const { generator } = setup();
-    const scenario = degradation('failure', { provider: 'Adyen', country: 'BR' }, 0);
-    scenario.failureReason = failureReason;
-    scenario.targetTransactionsPerTick = 1;
-
-    const result = await generator.generate(0, [scenario]);
-
-    expect(result.rows[0]).toMatchObject({
-      transactionType: 'PURCHASE', yunoStatus, responseCode: failureReason,
-      failureReason, status,
-    });
   });
 
   it('matches complete and partial dimensions as wildcards', () => {

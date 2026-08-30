@@ -63,15 +63,6 @@ function diagnosis(id: string, country: string): EnrichedAgentDiagnosis {
       observedValue: null,
       attempts: null,
     }],
-    declineIntelligence: null,
-    operationalOwnership: {
-      suspectedDomain: 'UNKNOWN',
-      primaryTeam: 'PAYMENTS_OPS',
-      supportingTeams: [],
-      statement: 'Payments Operations should review the evidence.',
-      basis: ['No failureReason is present.'],
-      requiresHumanApproval: true,
-    },
   };
 }
 
@@ -144,7 +135,6 @@ describe('AgentService multi-incident analysis', () => {
     ]);
     expect(result.incidents[0].diagnosis?.incidentId).toBe('A');
     expect(result.incidents[1].diagnosis?.incidentId).toBe('B');
-    expect(result.incidents.every((row) => row.diagnosis?.operationalOwnership)).toBe(true);
     expect(result.correlation.status).toBe('INDEPENDENT');
     expect(result.portfolio.totalLossPerMinuteCents).toBe(500_000);
   });

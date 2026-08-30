@@ -48,8 +48,8 @@ function harness(incidentOverrides: Record<string, unknown> = {}) {
 
   const incident = {
     id: 'inc-1',
-    fingerprint: 'country=MX|failureReason=INVALID_SECURITY_CODE|provider=Stripe',
-    anchorFingerprint: 'failureReason=INVALID_SECURITY_CODE',
+    fingerprint: 'country=MX|failureReason=INVALID_CVV|provider=Stripe',
+    anchorFingerprint: 'failureReason=INVALID_CVV',
     status: 'OPEN',
     severity: 4,
     expectedApprovals: 100,

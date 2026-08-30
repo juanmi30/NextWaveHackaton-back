@@ -154,47 +154,14 @@ no calcula confidence explicable ni impacto contrafactual. Los controles sanos
 solo descartan generalizaciones y el trace expone evidencia observable, no
 razonamiento privado.
 
-P5.2 agrega tambien `declineIntelligence` y `operationalOwnership`. Ambos se
-derivan en backend desde `failureReason` y la taxonomia canonica de Yuno; el LLM
-no clasifica codigos ni decide ownership. Si no existe `failureReason`,
-`declineIntelligence` es `null` y ownership cae de forma segura en
-`PAYMENTS_OPS`. Ninguna recomendacion ejecuta remediation.
-
-Ejemplo aditivo para frontend:
-
-```json
-{
-  "declineIntelligence": {
-    "responseCode": "DO_NOT_HONOR",
-    "transactionStatus": "DECLINED",
-    "declineType": "SOFT",
-    "failureDomain": "ISSUER",
-    "actionability": "ISSUER_SIDE",
-    "retryAdvice": "UNKNOWN",
-    "unknownCode": false
-  },
-  "operationalOwnership": {
-    "suspectedDomain": "ISSUER",
-    "primaryTeam": "MERCHANT_SUCCESS",
-    "supportingTeams": ["PAYMENTS_OPS"],
-    "statement": "Evidence points to an issuer-side failure. Escalate issuer-specific evidence through the provider/acquirer path. No automatic remediation has been executed.",
-    "basis": [
-      "Canonical response code DO_NOT_HONOR maps to ISSUER.",
-      "A supported root cause is present in the diagnosis."
-    ],
-    "requiresHumanApproval": true
-  }
-}
-```
-
-Live Monitoring programa automaticamente el diagnostico inicial cuando Detection
-crea un incidente confirmado. Prediction no crea incidentes ni dispara diagnosticos.
-El analisis es asincrono y no bloquea el siguiente ciclo de Detection. El `GET`
-expone `NOT_STARTED`, `PENDING`, `RUNNING`, `COMPLETED` o `FAILED`, junto con
-`diagnosis` cuando termina. El `POST` manual se conserva para reintentos y depuracion.
-Este estado es local al proceso y vuelve a `NOT_STARTED` tras un reinicio; no agrega
-campos ni migraciones Prisma. El SSE existente conserva su ejecucion bajo demanda y
-no intenta reproducir eventos de un autoanalisis ya iniciado.
+Live Monitoring reconcilia automaticamente los incidentes confirmados con el
+Watchtower de diagnostico. Prediction no crea incidentes ni dispara diagnosticos
+de causa raiz. El analisis no bloquea el siguiente ciclo de Detection y el `GET`
+expone `NOT_STARTED`, `PENDING`, `QUEUED`, `RUNNING`, `COMPLETED` o `FAILED`, junto
+con `diagnosis` cuando termina. La cola limita concurrencia y prioriza el mayor
+`lossPerMinuteCents`; el `POST` manual se conserva para reintentos y depuracion.
+El estado es local al proceso y los incidentes `OPEN` se reconcilian al reiniciar,
+sin agregar campos ni migraciones Prisma. El SSE conserva su ejecucion bajo demanda.
 
 El endpoint `stream` usa SSE (`text/event-stream`) y emite solamente actividad
 publica: `run_started`, `phase_changed`, `tool_started`, `tool_completed`,

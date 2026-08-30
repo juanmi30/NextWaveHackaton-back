@@ -157,7 +157,6 @@ describe('LiveMonitoringService', () => {
     expect(autoAnalysis).toHaveBeenCalledTimes(2);
     await service.stop();
   });
-
   it('skips overlapping detection runs', async () => {
     let resolveDetection!: (value: unknown) => void;
     const slowDetection = vi.fn(
