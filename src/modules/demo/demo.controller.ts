@@ -38,4 +38,13 @@ export class DemoController {
       dto,
     );
   }
+
+  @Post('run-incident-scenario')
+  runIncidentScenario(
+    @Body() dto: InjectIncidentDto,
+  ) {
+    return this.demo.runIncidentScenario(
+      dto,
+    );
+  }
 }

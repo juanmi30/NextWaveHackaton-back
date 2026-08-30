@@ -4,9 +4,10 @@ import { IncidentsModule } from '../incidents/incidents.module.js';
 import { TransactionsModule } from '../transactions/transactions.module.js';
 import { DemoController } from './demo.controller.js';
 import { DemoService } from './demo.service.js';
+import { DetectionModule } from '../detection/detection.module.js';
 
 @Module({
-  imports: [TransactionsModule, BaselinesModule, IncidentsModule],
+  imports: [TransactionsModule, BaselinesModule, IncidentsModule, DetectionModule],
   controllers: [DemoController],
   providers: [DemoService],
   exports: [DemoService],
