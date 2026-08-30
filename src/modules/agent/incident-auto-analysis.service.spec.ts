@@ -1,16 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { IncidentsService } from '../incidents/incidents.service.js';
 import type { AgentService } from './agent.service.js';
+import type { ConfigService } from '@nestjs/config';
 import { IncidentAutoAnalysisService } from './incident-auto-analysis.service.js';
 import type { EnrichedAgentDiagnosis } from './schemas/agent-diagnosis.schema.js';
 
 const diagnosis = { incidentId: 'incident-a' } as EnrichedAgentDiagnosis;
 
-function setup(analyzeIncident = vi.fn().mockResolvedValue(diagnosis)) {
-  const incidents = { findOne: vi.fn().mockResolvedValue({ id: 'incident-a' }) };
+function setup(analyzeIncident = vi.fn().mockResolvedValue(diagnosis), open: Array<{ id: string; lossPerMinuteCents: number }> = [], concurrency = 3) {
+  const incidents = { findOne: vi.fn().mockResolvedValue({ id: 'incident-a', lossPerMinuteCents: 100 }), findAll: vi.fn().mockResolvedValue(open) };
   const service = new IncidentAutoAnalysisService(
     { analyzeIncident } as unknown as AgentService,
     incidents as unknown as IncidentsService,
+    { get: vi.fn().mockReturnValue(String(concurrency)) } as unknown as ConfigService,
   );
   return { service, analyzeIncident, incidents };
 }
@@ -99,5 +101,49 @@ describe('IncidentAutoAnalysisService', () => {
       status: 'NOT_STARTED',
       diagnosis: null,
     });
+  });
+});
+
+describe('IncidentAutoAnalysisService reconciliation', () => {
+  it('starts existing incidents on startup up to available capacity', async () => {
+    const analyze = vi.fn(() => new Promise<EnrichedAgentDiagnosis>(() => undefined));
+    const open = [{ id: 'A', lossPerMinuteCents: 3800 }, { id: 'B', lossPerMinuteCents: 107 }];
+    const { service } = setup(analyze, open, 3);
+    await service.onModuleInit();
+    await vi.waitFor(() => expect(analyze).toHaveBeenCalledTimes(2));
+    await expect(service.getDiagnosis('A')).resolves.toMatchObject({ status: 'RUNNING' });
+    await expect(service.getDiagnosis('B')).resolves.toMatchObject({ status: 'RUNNING' });
+  });
+
+  it('prioritizes financial loss, queues excess work, and dispatches after completion', async () => {
+    const resolvers = new Map<string, (value: EnrichedAgentDiagnosis) => void>();
+    const analyze = vi.fn((id: string) => new Promise<EnrichedAgentDiagnosis>((resolve) => resolvers.set(id, resolve)));
+    const open = [{ id: 'C', lossPerMinuteCents: 1000 }, { id: 'A', lossPerMinuteCents: 5000 }, { id: 'B', lossPerMinuteCents: 3000 }];
+    const { service } = setup(analyze, open, 2);
+    await service.reconcileOpenIncidents();
+    expect(analyze.mock.calls.map(([id]) => id)).toEqual(['A', 'B']);
+    await expect(service.getDiagnosis('C')).resolves.toMatchObject({ status: 'QUEUED' });
+    resolvers.get('A')?.({ ...diagnosis, incidentId: 'A' });
+    await vi.waitFor(() => expect(analyze).toHaveBeenCalledWith('C'));
+    await expect(service.getDiagnosis('C')).resolves.toMatchObject({ status: 'RUNNING' });
+  });
+
+  it('is idempotent and does not duplicate completed analyses', async () => {
+    const analyze = vi.fn().mockResolvedValue(diagnosis);
+    const { service } = setup(analyze, [{ id: 'incident-a', lossPerMinuteCents: 5000 }], 1);
+    await service.reconcileOpenIncidents();
+    await service.reconcileOpenIncidents();
+    await vi.waitFor(() => expect(analyze).toHaveBeenCalledTimes(1));
+    await service.reconcileOpenIncidents();
+    expect(analyze).toHaveBeenCalledTimes(1);
+  });
+
+  it('frees failed capacity and starts the next queued incident', async () => {
+    const analyze = vi.fn().mockRejectedValueOnce(new Error('failed')).mockResolvedValueOnce(diagnosis);
+    const { service } = setup(analyze, [{ id: 'A', lossPerMinuteCents: 5000 }, { id: 'B', lossPerMinuteCents: 1000 }], 1);
+    await service.reconcileOpenIncidents();
+    await vi.waitFor(() => expect(analyze).toHaveBeenCalledTimes(2));
+    await expect(service.getDiagnosis('A')).resolves.toMatchObject({ status: 'FAILED' });
+    await expect(service.getDiagnosis('B')).resolves.toMatchObject({ status: 'COMPLETED' });
   });
 });

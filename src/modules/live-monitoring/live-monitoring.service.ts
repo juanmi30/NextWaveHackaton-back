@@ -153,6 +153,7 @@ export class LiveMonitoringService implements OnModuleInit, OnModuleDestroy {
       15_000,
     );
     this.events.emit({ type: 'monitor_started', config: this.config });
+    await this.autoAnalysis.reconcileOpenIncidents();
     return this.status();
   }
 
@@ -309,10 +310,8 @@ export class LiveMonitoringService implements OnModuleInit, OnModuleDestroy {
           isNew: incident.isNew,
           priorityRank: incident.priorityRank,
         });
-        if (incident.isNew) {
-          this.autoAnalysis.analyzeIfNeeded(incident.incidentId);
-        }
       }
+      await this.autoAnalysis.reconcileOpenIncidents();
     } catch (error) {
       this.lastDetectionError = safeError(error);
       this.logger.error(`Automatic detection failed: ${this.lastDetectionError}`);

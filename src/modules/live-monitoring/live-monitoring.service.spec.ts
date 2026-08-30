@@ -41,7 +41,7 @@ function setup(options: {
   const events = new LiveEventService();
   const prediction = options.prediction ?? vi.fn().mockResolvedValue(scanResult);
   const eventSpy = vi.spyOn(events, 'emit');
-  const autoAnalysis = options.autoAnalysis ?? vi.fn();
+  const autoAnalysis = options.autoAnalysis ?? vi.fn().mockResolvedValue({ open: 0, scheduled: 0 });
   const service = new LiveMonitoringService(
     { get: vi.fn(() => undefined) } as unknown as ConfigService,
     { count: vi.fn().mockResolvedValue(options.ready === false ? 0 : 100) } as unknown as TransactionsRepository,
@@ -54,7 +54,7 @@ function setup(options: {
     { scan: prediction } as unknown as PredictionService,
     generator as unknown as LiveTransactionGeneratorService,
     events,
-    { analyzeIfNeeded: autoAnalysis } as unknown as IncidentAutoAnalysisService,
+    { reconcileOpenIncidents: autoAnalysis } as unknown as IncidentAutoAnalysisService,
   );
   return { service, generator, detection, prediction, events, eventSpy, autoAnalysis };
 }
@@ -140,7 +140,7 @@ describe('LiveMonitoringService', () => {
     service.stop();
   });
 
-  it('schedules automatic analysis once for each newly confirmed incident', async () => {
+  it('reconciles all confirmed incidents after detection, including existing ones', async () => {
     const detection = vi.fn().mockResolvedValue({
       runId: 'run-1',
       outcome: 'INCIDENTS_FOUND',
@@ -155,9 +155,6 @@ describe('LiveMonitoringService', () => {
     await vi.advanceTimersByTimeAsync(1_000);
 
     expect(autoAnalysis).toHaveBeenCalledTimes(2);
-    expect(autoAnalysis).toHaveBeenCalledWith('incident-a');
-    expect(autoAnalysis).toHaveBeenCalledWith('incident-b');
-    expect(autoAnalysis).not.toHaveBeenCalledWith('incident-old');
     await service.stop();
   });
 
