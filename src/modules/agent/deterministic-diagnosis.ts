@@ -71,11 +71,9 @@ export function buildDeterministicDiagnosis(
     affectedScope,
     rootCause: sufficient
       ? {
-          statement:
-            incident.confidenceStatement ??
-            `Stored evidence isolates ${rootEvidence
-              .map((row) => `${row.dimension}=${row.dimensionValue}`)
-              .join(', ')}.`,
+          statement: `Stored evidence isolates ${rootEvidence
+            .map((row) => `${row.dimension}=${row.dimensionValue}`)
+            .join(', ')}.`,
           dimensions: rootDimensions,
           confidence: Math.min(latest?.confidence ?? 0, ...rootEvidence.map((row) => row.confidence)),
         }
@@ -95,16 +93,40 @@ export function buildDeterministicDiagnosis(
       previousOccurrenceCount: history.previousOccurrences.length,
     },
     recommendation: {
-      action: incident.recommendation ?? 'Review the stored incident evidence manually.',
+      action: buildRecommendation(storedDimensions),
       requiresHumanApproval: true,
     },
     summaries: {
-      operations:
-        incident.summaryOps ?? `Incident ${incident.id} requires review using stored evidence.`,
-      executive:
-        incident.summaryExec ?? `A payment incident is active and requires human review.`,
+      operations: buildOperationsSummary(incident.id, storedDimensions, latest),
+      executive: `Payment incident ${incident.id} is active, with an estimated impact of $${(
+        incident.lossPerMinuteCents / 100
+      ).toFixed(2)} per minute, and requires human review.`,
     },
   });
+}
+
+function buildRecommendation(dimensions: Record<string, string | null>) {
+  return `Review the stored evidence for ${formatScope(dimensions)} and evaluate mitigation options. Human approval is required before any action.`;
+}
+
+function buildOperationsSummary(
+  incidentId: string,
+  dimensions: Record<string, string | null>,
+  latest: StoredDiagnosis | undefined,
+) {
+  if (!latest) {
+    return `Incident ${incidentId} affects ${formatScope(dimensions)}, but the stored evidence is insufficient to isolate a supported root cause.`;
+  }
+  return `Incident ${incidentId} affects ${formatScope(dimensions)}. Expected approval rate is ${(
+    latest.baselineRate * 100
+  ).toFixed(1)}%, observed approval rate is ${(latest.observedRate * 100).toFixed(1)}%.`;
+}
+
+function formatScope(dimensions: Record<string, string | null>) {
+  const values = DIMENSIONS.flatMap((name) =>
+    dimensions[name] ? [`${name}=${dimensions[name]}`] : [],
+  );
+  return values.length > 0 ? values.join(', ') : 'the stored payment scope';
 }
 
 function asDimensions(value: unknown): Record<string, string | null> {

@@ -73,12 +73,12 @@ export function isRefinementOf(child: DimensionMap, parent: DimensionMap): boole
 
 export function humanizeDimensions(dims: DimensionMap): string {
   const labels: Record<string, string> = {
-    merchant: 'comercio',
-    provider: 'proveedor',
-    method: 'método',
-    country: 'país',
-    issuingBank: 'banco emisor',
-    failureReason: 'motivo de rechazo',
+    merchant: 'merchant',
+    provider: 'provider',
+    method: 'method',
+    country: 'country',
+    issuingBank: 'issuing bank',
+    failureReason: 'decline reason',
   };
   return Object.entries(dims)
     .sort(([a], [b]) => a.localeCompare(b))

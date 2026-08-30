@@ -179,6 +179,7 @@ describe('AgentService streaming analysis', () => {
     expect(result).toHaveProperty('ruledOutHypotheses');
     expect(result).toHaveProperty('counterfactualImpact');
     expect(result).toHaveProperty('diagnosisTrace');
+    expect(JSON.stringify(result)).not.toMatch(/Confianza|caída|intentos|evidencia insuficiente/i);
   });
 
   it('calculates the same backend enrichment for OpenAI success and fallback', async () => {
@@ -209,7 +210,29 @@ describe('AgentService streaming analysis', () => {
   it('falls back when structured output is invalid', async () => {
     const runMock = vi.fn().mockResolvedValue({ finalOutput: { invalid: true } });
     const result = await createService(runMock).service.analyzeIncident('incident-1');
-    expect(result.summaries.operations).toBe('Stored operations summary');
+    expect(result.summaries.operations).toContain('Expected approval rate');
+    expect(JSON.stringify(result)).not.toMatch(/Confianza|caída|intentos|evidencia insuficiente/i);
+  });
+
+  it('replaces Spanish OpenAI copy with the English deterministic fallback', async () => {
+    const spanishOutput: AgentDiagnosis = {
+      ...modelDiagnosis,
+      summaries: {
+        operations: 'Caída consistente sobre 485 intentos.',
+        executive: 'Incidente activo.',
+      },
+      recommendation: {
+        action: 'Recomendación para el operador.',
+        requiresHumanApproval: true,
+      },
+    };
+    const result = await createService(
+      vi.fn().mockResolvedValue({ finalOutput: spanishOutput }),
+    ).service.analyzeIncident('incident-1');
+
+    expect(result.summaries.operations).toContain('Expected approval rate');
+    expect(result.recommendation.action).toContain('Review');
+    expect(JSON.stringify(result)).not.toMatch(/Confianza|caída|intentos|evidencia insuficiente/i);
   });
 
   it('falls back after the configured OpenAI timeout', async () => {

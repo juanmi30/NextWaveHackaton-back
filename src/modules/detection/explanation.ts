@@ -28,14 +28,14 @@ export function buildExplanation(input: ExplanationInput) {
   const drop = input.expectedRate - input.observedRate;
 
   const summaryOps =
-    `Caída de aprobación en ${where}. ` +
-    `Esperado ${pct(input.expectedRate)}, observado ${pct(input.observedRate)} ` +
-    `(−${pct(drop)}) sobre ${input.observedAttempts} intentos desde ${hhmm(input.startedAt)}. ` +
-    `Baseline construido con ${input.baselineAttempts} transacciones (${input.baselineSource}).`;
+    `Approval-rate drop in ${where}. ` +
+    `Expected ${pct(input.expectedRate)}, observed ${pct(input.observedRate)} ` +
+    `(−${pct(drop)}) across ${input.observedAttempts} attempts since ${hhmm(input.startedAt)}. ` +
+    `Baseline built from ${input.baselineAttempts} transactions (${input.baselineSource}).`;
 
   const summaryExec =
-    `La degradación en ${where} está costando aproximadamente ` +
-    `${usd(input.lossPerMinuteCents)} por minuto desde ${hhmm(input.startedAt)}.`;
+    `The degradation in ${where} is costing approximately ` +
+    `${usd(input.lossPerMinuteCents)} per minute since ${hhmm(input.startedAt)}.`;
 
   return {
     summaryOps,
@@ -55,37 +55,37 @@ function buildRecommendation(dimensions: DimensionMap): string {
   const parts: string[] = [];
 
   if (keys.includes('provider')) {
-    parts.push(`contactar a ${dimensions.provider} y evaluar desviar tráfico a un proveedor alterno`);
+    parts.push(`contact ${dimensions.provider} and evaluate routing traffic to an alternate provider`);
   }
   if (keys.includes('issuingBank')) {
-    parts.push(`verificar si ${dimensions.issuingBank} está rechazando de forma anómala y probar reintentos con otra ruta`);
+    parts.push(`verify whether ${dimensions.issuingBank} is declining abnormally and evaluate an alternate route`);
   }
   if (keys.includes('method')) {
-    parts.push(`revisar la disponibilidad de ${dimensions.method} y priorizar métodos alternativos`);
+    parts.push(`review ${dimensions.method} availability and prioritize alternate payment methods`);
   }
   if (keys.includes('country')) {
-    parts.push(`confirmar si la degradación es regional en ${dimensions.country}`);
+    parts.push(`confirm whether the degradation is regional within ${dimensions.country}`);
   }
   if (keys.includes('merchant')) {
-    parts.push(`revisar cambios recientes de configuración en ${dimensions.merchant}`);
+    parts.push(`review recent configuration changes for ${dimensions.merchant}`);
   }
   if (keys.includes('failureReason')) {
-    parts.push(`analizar la concentración del código ${dimensions.failureReason}`);
+    parts.push(`analyze the concentration of response code ${dimensions.failureReason}`);
   }
 
-  if (parts.length === 0) return 'Investigar la degradación con el equipo de operaciones.';
-  return `Sugerido para el operador: ${parts.join('; ')}. El sistema no ejecuta ninguna acción automáticamente.`;
+  if (parts.length === 0) return 'Investigate the degradation with the operations team.';
+  return `Suggested operator action: ${parts.join('; ')}. The system does not execute any action automatically.`;
 }
 
 function buildConfidenceStatement(input: ExplanationInput): string {
   if (input.baselineSource === 'none') {
-    return 'Evidencia insuficiente: no existe baseline histórico para este segmento. Se reporta la anomalía sin diagnóstico firme.';
+    return 'Insufficient evidence: no historical baseline exists for this segment. The anomaly is reported without a confirmed diagnosis.';
   }
   if (input.confidence < 0.4) {
-    return `Confianza baja (${pct(input.confidence)}): la muestra de ${input.observedAttempts} intentos es limitada. Conviene esperar más datos antes de actuar.`;
+    return `Low confidence (${pct(input.confidence)}): the sample of ${input.observedAttempts} attempts is limited. Wait for more data before acting.`;
   }
   if (input.confidence < 0.7) {
-    return `Confianza media (${pct(input.confidence)}) con ${input.observedAttempts} intentos observados contra ${input.baselineAttempts} de baseline.`;
+    return `Medium confidence (${pct(input.confidence)}) with ${input.observedAttempts} observed attempts compared with ${input.baselineAttempts} baseline attempts.`;
   }
-  return `Confianza alta (${pct(input.confidence)}): la caída es consistente sobre ${input.observedAttempts} intentos y excede la varianza histórica del segmento.`;
+  return `High confidence (${pct(input.confidence)}): the degradation is consistent across ${input.observedAttempts} attempts and exceeds the segment's historical variance.`;
 }
