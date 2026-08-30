@@ -98,7 +98,7 @@ export function buildDeterministicDiagnosis(
     },
     summaries: {
       operations: buildOperationsSummary(incident.id, storedDimensions, latest),
-      executive: `Payment incident ${incident.id} is active, with an estimated impact of $${(
+      executive: `Payment incident ${incident.id} is active, with estimated payment volume at risk of $${(
         incident.lossPerMinuteCents / 100
       ).toFixed(2)} per minute, and requires human review.`,
     },

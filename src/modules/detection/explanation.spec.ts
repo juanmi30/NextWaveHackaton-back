@@ -25,7 +25,8 @@ describe('buildExplanation English copy', () => {
 
     expect(result.summaryOps).toContain('Approval-rate drop');
     expect(result.summaryOps).toContain('merchant Mercado Uno');
-    expect(result.summaryExec).toContain('is costing approximately');
+    expect(result.summaryExec).toContain('Estimated payment volume at risk is approximately');
+    expect(result.summaryExec).not.toContain('costing');
     expect(result.recommendation).toContain('Suggested operator action');
     expect(result.confidenceStatement).toContain('High confidence (99.0%)');
     expect(JSON.stringify(result)).not.toMatch(SPANISH_COPY);

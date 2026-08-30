@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import nodemailer from 'nodemailer';
 import type { NotificationChannel } from './escalation-policy.js';
 import type { RecipientRole } from './routing.js';
+import { presentIncident } from '../incidents/incident-presentation.js';
 
 export type DeliveryResult = {
   status: 'SENT' | 'FAILED' | 'SKIPPED';
@@ -36,6 +37,16 @@ export type IncidentAlert = {
   summaryOps?: string | null;
   summaryExec?: string | null;
   recommendation?: string | null;
+  confidenceStatement?: string | null;
+  diagnoses?: Array<{
+    version?: number;
+    dimensions: unknown;
+    baselineRate: number;
+    observedRate: number;
+    baselineAttempts: number;
+    observedAttempts: number;
+    confidence: number;
+  }>;
 };
 
 @Injectable()
@@ -68,7 +79,11 @@ export class AlertsService {
   }
 
   buildMessage(incident: IncidentAlert, context: AlertContext): AlertMessage {
-    return buildIncidentMessage(incident, this.config.get<string>('ALERT_APP_URL')?.trim(), context);
+    return buildIncidentMessage(
+      presentIncident(incident),
+      this.config.get<string>('ALERT_APP_URL')?.trim(),
+      context,
+    );
   }
 
   private async sendEmail(to: string, message: AlertMessage): Promise<DeliveryResult> {
@@ -84,7 +99,7 @@ export class AlertsService {
     // esto permite ver toda la cadena sin depender de un servidor de correo.
     if (!host || !from) {
       this.logger.log(`[SIN SMTP] Correo para ${to}: ${message.subject}`);
-      return { status: 'SKIPPED', error: 'SMTP sin configurar' };
+      return { status: 'SKIPPED', error: 'SMTP is not configured' };
     }
 
     const port = Number(this.config.get<string>('SMTP_PORT') ?? 587);
@@ -123,7 +138,7 @@ export class AlertsService {
 
     if (!token || !phoneNumberId) {
       this.logger.log(`[SIN WHATSAPP] Mensaje para ${to}: ${message.subject}`);
-      return { status: 'SKIPPED', error: 'WhatsApp sin configurar' };
+      return { status: 'SKIPPED', error: 'WhatsApp is not configured' };
     }
 
     const version = this.config.get<string>('WHATSAPP_GRAPH_API_VERSION')?.trim() || 'v22.0';
@@ -154,7 +169,7 @@ export class AlertsService {
 
     if (!response.ok) {
       const body = await response.text();
-      throw new Error(`WhatsApp API respondio ${response.status}: ${body.slice(0, 300)}`);
+      throw new Error(`WhatsApp API returned ${response.status}: ${body.slice(0, 300)}`);
     }
 
     this.logger.log(`Alerta por WhatsApp enviada a ${to}`);
@@ -179,32 +194,32 @@ function buildIncidentMessage(
 ): AlertMessage {
   const escalationTag =
     context.escalatedFrom !== undefined
-      ? ` - ESCALADO (nivel ${context.level}/${context.totalLevels})`
+      ? ` - ESCALATED (level ${context.level}/${context.totalLevels})`
       : '';
   const subject = `[NextWave] Risk Alert - Severity ${incident.severity}${escalationTag}`;
   const text = [
     `${subject} - Action required`,
     '',
-    `Para: ${context.recipientName} (${context.role})`,
-    `Por que te llega: ${context.routingReason}`,
-    `Nivel de escalamiento: ${context.level}/${context.totalLevels} - ${context.levelLabel}`,
+    `To: ${context.recipientName} (${context.role})`,
+    `Why you received this alert: ${context.routingReason}`,
+    `Escalation level: ${context.level}/${context.totalLevels} - ${context.levelLabel}`,
     context.escalatedFrom !== undefined
-      ? `Escalado desde el nivel ${context.escalatedFrom} por falta de acuse de recibo.`
+      ? `Escalated from level ${context.escalatedFrom} because no acknowledgement was received.`
       : '',
     context.nextEscalationAt
-      ? `Si nadie acusa recibo, escala de nuevo a las ${context.nextEscalationAt.toISOString()}.`
-      : 'Este es el ultimo nivel de la politica.',
+      ? `If nobody acknowledges it, the alert escalates again at ${context.nextEscalationAt.toISOString()}.`
+      : 'This is the final level of the escalation policy.',
     '',
-    incident.summaryExec ?? 'Se detecto una degradacion de pagos.',
+    incident.summaryExec ?? 'A payment degradation was detected.',
     '',
-    `Incidente: ${incident.id}`,
-    `Segmento: ${incident.fingerprint}`,
-    `Detectado: ${incident.detectedAt.toISOString()}`,
-    `Inicio estimado: ${incident.startedAt.toISOString()}`,
-    `Aprobaciones esperadas: ${incident.expectedApprovals}`,
-    `Aprobaciones reales: ${incident.actualApprovals}`,
-    `Aprobaciones perdidas: ${incident.lostApprovals}`,
-    `Impacto estimado: ${formatUsd(incident.lossPerMinuteCents)} por minuto`,
+    `Incident: ${incident.id}`,
+    `Segment: ${incident.fingerprint}`,
+    `Detected: ${incident.detectedAt.toISOString()}`,
+    `Estimated start: ${incident.startedAt.toISOString()}`,
+    `Expected approvals: ${incident.expectedApprovals}`,
+    `Actual approvals: ${incident.actualApprovals}`,
+    `Lost approvals: ${incident.lostApprovals}`,
+    `Estimated payment volume at risk: ${formatUsd(incident.lossPerMinuteCents)} per minute`,
     '',
     incident.summaryOps ?? '',
     incident.recommendation ?? '',
@@ -239,14 +254,14 @@ function buildIncidentHtml(
     ? `<tr>
         <td style="padding: 18px 0 0;">
           <a href="${escapeHtml(appUrl)}" style="display: inline-block; background: #111827; color: #ffffff; text-decoration: none; padding: 12px 18px; border-radius: 6px; font-weight: 700;">
-            Abrir dashboard
+            Open dashboard
           </a>
         </td>
       </tr>`
     : '';
 
   return `<!doctype html>
-<html lang="es">
+<html lang="en">
   <body style="margin:0; padding:0; background:#f4f6f8; font-family: Arial, Helvetica, sans-serif; color:#111827;">
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f6f8; padding:24px 0;">
       <tr>
@@ -264,9 +279,9 @@ function buildIncidentHtml(
 
             <tr>
               <td style="padding:26px 28px 12px;">
-                <p style="margin:0; font-size:15px; line-height:1.6;">Hola ${escapeHtml(context.recipientName)},</p>
+                <p style="margin:0; font-size:15px; line-height:1.6;">Hello ${escapeHtml(context.recipientName)},</p>
                 <p style="margin:10px 0 0; font-size:15px; line-height:1.6;">${escapeHtml(context.routingReason)}</p>
-                <p style="margin:10px 0 0; font-size:13px; line-height:1.6; color:#6b7280;">Nivel ${context.level} de ${context.totalLevels} &middot; ${escapeHtml(context.levelLabel)}${context.escalatedFrom !== undefined ? ` &middot; escalado desde el nivel ${context.escalatedFrom}` : ''}</p>
+                <p style="margin:10px 0 0; font-size:13px; line-height:1.6; color:#6b7280;">Level ${context.level} of ${context.totalLevels} &middot; ${escapeHtml(context.levelLabel)}${context.escalatedFrom !== undefined ? ` &middot; escalated from level ${context.escalatedFrom}` : ''}</p>
               </td>
             </tr>
 
@@ -275,9 +290,9 @@ function buildIncidentHtml(
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#fff7ed; border:1px solid #fed7aa; border-radius:8px;">
                   <tr>
                     <td style="padding:16px 18px;">
-                      <div style="font-size:13px; font-weight:700; color:#9a3412; text-transform:uppercase;">Resumen ejecutivo</div>
+                      <div style="font-size:13px; font-weight:700; color:#9a3412; text-transform:uppercase;">Executive summary</div>
                       <div style="margin-top:6px; font-size:17px; line-height:1.45; font-weight:700; color:#111827;">
-                        ${escapeHtml(incident.summaryExec ?? 'Se detecto una degradacion de pagos.')}
+                        ${escapeHtml(incident.summaryExec ?? 'A payment degradation was detected.')}
                       </div>
                     </td>
                   </tr>
@@ -289,9 +304,9 @@ function buildIncidentHtml(
               <td style="padding:0 28px 18px;">
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
                   <tr>
-                    ${metricCard('Impacto/min', formatUsd(incident.lossPerMinuteCents), '#b42318')}
-                    ${metricCard('Aprobaciones perdidas', String(incident.lostApprovals), '#92400e')}
-                    ${metricCard('Esperadas vs reales', `${incident.expectedApprovals} / ${incident.actualApprovals}`, '#1d4ed8')}
+                    ${metricCard('Payment volume at risk/min', formatUsd(incident.lossPerMinuteCents), '#b42318')}
+                    ${metricCard('Lost approvals', String(incident.lostApprovals), '#92400e')}
+                    ${metricCard('Expected vs actual', `${incident.expectedApprovals} / ${incident.actualApprovals}`, '#1d4ed8')}
                   </tr>
                 </table>
               </td>
@@ -301,12 +316,12 @@ function buildIncidentHtml(
               <td style="padding:0 28px 18px;">
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;">
                   <tr>
-                    <td colspan="2" style="background:#f9fafb; padding:12px 16px; font-size:13px; font-weight:700; text-transform:uppercase; color:#374151;">Segmento afectado</td>
+                    <td colspan="2" style="background:#f9fafb; padding:12px 16px; font-size:13px; font-weight:700; text-transform:uppercase; color:#374151;">Affected segment</td>
                   </tr>
                   ${segmentRows}
-                  ${tableRow('Incidente', incident.id)}
-                  ${tableRow('Detectado', formatDateUtc(incident.detectedAt))}
-                  ${tableRow('Inicio estimado', formatDateUtc(incident.startedAt))}
+                  ${tableRow('Incident', incident.id)}
+                  ${tableRow('Detected', formatDateUtc(incident.detectedAt))}
+                  ${tableRow('Estimated start', formatDateUtc(incident.startedAt))}
                 </table>
               </td>
             </tr>
@@ -316,8 +331,8 @@ function buildIncidentHtml(
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #dbeafe; border-radius:8px; background:#eff6ff;">
                   <tr>
                     <td style="padding:16px 18px;">
-                      <div style="font-size:13px; font-weight:700; color:#1e40af; text-transform:uppercase;">Evidencia</div>
-                      <p style="margin:8px 0 0; font-size:14px; line-height:1.6; color:#1f2937;">${escapeHtml(incident.summaryOps ?? 'El sistema detecto una desviacion relevante frente al baseline historico.')}</p>
+                      <div style="font-size:13px; font-weight:700; color:#1e40af; text-transform:uppercase;">Evidence</div>
+                      <p style="margin:8px 0 0; font-size:14px; line-height:1.6; color:#1f2937;">${escapeHtml(incident.summaryOps ?? 'The system detected a material deviation from the historical baseline.')}</p>
                     </td>
                   </tr>
                 </table>
@@ -329,8 +344,8 @@ function buildIncidentHtml(
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #dcfce7; border-radius:8px; background:#f0fdf4;">
                   <tr>
                     <td style="padding:16px 18px;">
-                      <div style="font-size:13px; font-weight:700; color:#166534; text-transform:uppercase;">Accion recomendada</div>
-                      <p style="margin:8px 0 0; font-size:14px; line-height:1.6; color:#1f2937;">${escapeHtml(incident.recommendation ?? 'Revisar el incidente y decidir una accion operativa.')}</p>
+                      <div style="font-size:13px; font-weight:700; color:#166534; text-transform:uppercase;">Recommended action</div>
+                      <p style="margin:8px 0 0; font-size:14px; line-height:1.6; color:#1f2937;">${escapeHtml(incident.recommendation ?? 'Review the incident and decide on an operational action.')}</p>
                       ${actionButton ? `<table role="presentation" cellspacing="0" cellpadding="0">${actionButton}</table>` : ''}
                     </td>
                   </tr>
@@ -340,7 +355,7 @@ function buildIncidentHtml(
 
             <tr>
               <td style="background:#f9fafb; border-top:1px solid #e5e7eb; padding:14px 28px; font-size:12px; line-height:1.5; color:#6b7280;">
-                Mensaje automatico de NextWave Payment Operations. El sistema recomienda acciones para un operador humano y no ejecuta remediaciones automaticamente.
+                Automated message from NextWave Payment Operations. The system recommends actions for a human operator and does not execute remediation automatically.
               </td>
             </tr>
           </table>
@@ -372,20 +387,20 @@ function tableRow(label: string, value: string): string {
 }
 
 function severityTone(severity: number) {
-  if (severity >= 4) return { label: 'Critico', background: '#991b1b', badge: '#dc2626' };
-  if (severity === 3) return { label: 'Alto', background: '#9a3412', badge: '#ea580c' };
-  if (severity === 2) return { label: 'Medio', background: '#92400e', badge: '#d97706' };
-  return { label: 'Bajo', background: '#1f2937', badge: '#4b5563' };
+  if (severity >= 4) return { label: 'Critical', background: '#991b1b', badge: '#dc2626' };
+  if (severity === 3) return { label: 'High', background: '#9a3412', badge: '#ea580c' };
+  if (severity === 2) return { label: 'Medium', background: '#92400e', badge: '#d97706' };
+  return { label: 'Low', background: '#1f2937', badge: '#4b5563' };
 }
 
 function labelize(value?: string): string {
   const labels: Record<string, string> = {
-    merchant: 'Comercio',
-    provider: 'Proveedor',
-    method: 'Metodo',
-    country: 'Pais',
-    issuingBank: 'Banco emisor',
-    failureReason: 'Motivo de fallo',
+    merchant: 'Merchant',
+    provider: 'Provider',
+    method: 'Payment method',
+    country: 'Country',
+    issuingBank: 'Issuing bank',
+    failureReason: 'Decline reason',
   };
   return value ? labels[value] ?? value : '-';
 }

@@ -30,12 +30,12 @@ export function buildExplanation(input: ExplanationInput) {
   const summaryOps =
     `Approval-rate drop in ${where}. ` +
     `Expected ${pct(input.expectedRate)}, observed ${pct(input.observedRate)} ` +
-    `(−${pct(drop)}) across ${input.observedAttempts} attempts since ${hhmm(input.startedAt)}. ` +
+    `(-${pct(drop)}) across ${input.observedAttempts} attempts since ${hhmm(input.startedAt)}. ` +
     `Baseline built from ${input.baselineAttempts} transactions (${input.baselineSource}).`;
 
   const summaryExec =
-    `The degradation in ${where} is costing approximately ` +
-    `${usd(input.lossPerMinuteCents)} per minute since ${hhmm(input.startedAt)}.`;
+    `Estimated payment volume at risk is approximately ${usd(input.lossPerMinuteCents)} per minute ` +
+    `for ${where} since ${hhmm(input.startedAt)}.`;
 
   return {
     summaryOps,

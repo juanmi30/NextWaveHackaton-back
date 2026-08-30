@@ -18,7 +18,7 @@ describe('routeIncident', () => {
     const decision = routeIncident({ failureReason: 'DO_NOT_HONOR' }, 2);
     expect(decision.actionability).toBe('ISSUER_SIDE');
     expect(decision.roles).toEqual(['MERCHANT_SUCCESS']);
-    expect(decision.reason).toContain('No es accionable desde Yuno');
+    expect(decision.reason).toContain('not actionable from Yuno');
   });
 
   it('manda el fraude a riesgo', () => {

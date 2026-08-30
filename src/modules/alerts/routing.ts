@@ -56,7 +56,7 @@ export function routeIncident(scope: IncidentScope, severity: number): RoutingDe
       actionability: 'UNKNOWN',
       roles: withSeverityFloor(['PAYMENTS_OPS'], severity),
       reason:
-        'La degradacion no se concentra en un motivo de fallo concreto, asi que se trata como caida transversal y va a la guardia general.',
+        'The degradation is not concentrated in a specific failure reason, so it is treated as a broad payment degradation and routed to Payments Operations.',
     };
   }
 
@@ -98,25 +98,25 @@ function buildReason(
   code: string,
 ): string {
   const explanations: Record<FailureCategory, string> = {
-    DATA_QUALITY: 'los datos que llegan del checkout vienen mal formados',
-    AUTHENTICATION: 'el flujo de autenticacion 3DS esta fallando',
-    INTEGRATION: 'la integracion con el proveedor esta devolviendo errores',
-    PROVIDER_CONFIGURATION: 'la configuracion o las credenciales del proveedor no son validas',
-    FRAUD: 'las reglas antifraude estan rechazando trafico',
-    CARD_EXPIRY: 'se concentran tarjetas vencidas',
-    ISSUER_DECLINE: 'el rechazo viene del banco emisor',
-    OTHER: 'el motivo no encaja en una categoria accionable',
-    UNKNOWN: 'el codigo de rechazo no esta en la taxonomia conocida',
+    DATA_QUALITY: 'checkout data is malformed',
+    AUTHENTICATION: 'the 3DS authentication flow is failing',
+    INTEGRATION: 'the provider integration is returning errors',
+    PROVIDER_CONFIGURATION: 'the provider configuration or credentials are invalid',
+    FRAUD: 'anti-fraud rules are rejecting traffic',
+    CARD_EXPIRY: 'expired cards are concentrated in the affected traffic',
+    ISSUER_DECLINE: 'the decline originates on the issuer side',
+    OTHER: 'the failure reason does not match an actionable category',
+    UNKNOWN: 'the decline code is not present in the known taxonomy',
   };
 
   const suffix =
     actionability === 'ISSUER_SIDE'
-      ? ' No es accionable desde Yuno: el aviso es informativo y para conversar con el comercio.'
+      ? ' It is not actionable from Yuno; the alert is informational and should be discussed with the merchant.'
       : actionability === 'LIMITED'
-        ? ' La capacidad de intervencion es limitada.'
+        ? ' The available intervention is limited.'
         : '';
 
-  return `El motivo dominante es ${code} (${category}): ${explanations[category]}.${suffix}`;
+  return `The dominant failure reason is ${code} (${category}): ${explanations[category]}.${suffix}`;
 }
 
 /**

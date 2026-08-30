@@ -75,7 +75,7 @@ export function humanizeDimensions(dims: DimensionMap): string {
   const labels: Record<string, string> = {
     merchant: 'merchant',
     provider: 'provider',
-    method: 'method',
+    method: 'payment method',
     country: 'country',
     issuingBank: 'issuing bank',
     failureReason: 'decline reason',

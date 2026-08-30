@@ -35,7 +35,7 @@ export const DEFAULT_POLICIES: EscalationPolicyDefinition[] = [
     name: 'critical',
     minSeverity: 4,
     maxSeverity: 5,
-    description: 'Severidad critica: ventanas cortas y llegada rapida a direccion.',
+    description: 'Critical severity: short response windows and rapid escalation to leadership.',
     steps: [
       {
         level: 1,
@@ -43,7 +43,7 @@ export const DEFAULT_POLICIES: EscalationPolicyDefinition[] = [
         roles: ['PAYMENTS_OPS'],
         includeSpecialists: true,
         channels: ['EMAIL', 'WHATSAPP'],
-        label: 'Especialista competente y guardia de operaciones',
+        label: 'Responsible specialist and Payments Operations',
       },
       {
         level: 2,
@@ -51,7 +51,7 @@ export const DEFAULT_POLICIES: EscalationPolicyDefinition[] = [
         roles: ['ADMIN'],
         includeSpecialists: true,
         channels: ['EMAIL', 'WHATSAPP'],
-        label: 'Sin acuse en 5 min: entra administracion',
+        label: 'No acknowledgement in 5 minutes: notify administration',
       },
       {
         level: 3,
@@ -59,7 +59,7 @@ export const DEFAULT_POLICIES: EscalationPolicyDefinition[] = [
         roles: ['ADMIN', 'PAYMENTS_OPS', 'INTEGRATIONS_ENGINEER', 'PROVIDER_MANAGER', 'RISK_ANALYST', 'CHECKOUT_ENGINEER', 'MERCHANT_SUCCESS'],
         includeSpecialists: true,
         channels: ['EMAIL', 'WHATSAPP'],
-        label: 'Sin acuse en 15 min: aviso a todo el equipo',
+        label: 'No acknowledgement in 15 minutes: notify the full team',
       },
     ],
   },
@@ -67,7 +67,7 @@ export const DEFAULT_POLICIES: EscalationPolicyDefinition[] = [
     name: 'high',
     minSeverity: 3,
     maxSeverity: 3,
-    description: 'Severidad alta: el especialista tiene margen antes de escalar.',
+    description: 'High severity: the specialist has a short response window before escalation.',
     steps: [
       {
         level: 1,
@@ -75,7 +75,7 @@ export const DEFAULT_POLICIES: EscalationPolicyDefinition[] = [
         roles: [],
         includeSpecialists: true,
         channels: ['EMAIL'],
-        label: 'Especialista competente',
+        label: 'Responsible specialist',
       },
       {
         level: 2,
@@ -83,7 +83,7 @@ export const DEFAULT_POLICIES: EscalationPolicyDefinition[] = [
         roles: ['PAYMENTS_OPS'],
         includeSpecialists: true,
         channels: ['EMAIL', 'WHATSAPP'],
-        label: 'Sin acuse en 10 min: guardia de operaciones',
+        label: 'No acknowledgement in 10 minutes: notify Payments Operations',
       },
       {
         level: 3,
@@ -91,7 +91,7 @@ export const DEFAULT_POLICIES: EscalationPolicyDefinition[] = [
         roles: ['ADMIN'],
         includeSpecialists: true,
         channels: ['EMAIL', 'WHATSAPP'],
-        label: 'Sin acuse en 25 min: administracion',
+        label: 'No acknowledgement in 25 minutes: notify administration',
       },
     ],
   },
@@ -99,7 +99,7 @@ export const DEFAULT_POLICIES: EscalationPolicyDefinition[] = [
     name: 'standard',
     minSeverity: 0,
     maxSeverity: 2,
-    description: 'Severidad baja o media: escalamiento completo con ventanas amplias.',
+    description: 'Low or medium severity: full escalation with wider response windows.',
     steps: [
       {
         level: 1,
@@ -107,7 +107,7 @@ export const DEFAULT_POLICIES: EscalationPolicyDefinition[] = [
         roles: [],
         includeSpecialists: true,
         channels: ['EMAIL'],
-        label: 'Especialista competente',
+        label: 'Responsible specialist',
       },
       {
         level: 2,
@@ -115,7 +115,7 @@ export const DEFAULT_POLICIES: EscalationPolicyDefinition[] = [
         roles: ['PAYMENTS_OPS'],
         includeSpecialists: true,
         channels: ['EMAIL'],
-        label: 'Sin acuse en 45 min: guardia de operaciones',
+        label: 'No acknowledgement in 45 minutes: notify Payments Operations',
       },
       {
         level: 3,
@@ -123,7 +123,7 @@ export const DEFAULT_POLICIES: EscalationPolicyDefinition[] = [
         roles: ['ADMIN'],
         includeSpecialists: true,
         channels: ['EMAIL'],
-        label: 'Sin acuse en 120 min: administracion',
+        label: 'No acknowledgement in 120 minutes: notify administration',
       },
     ],
   },

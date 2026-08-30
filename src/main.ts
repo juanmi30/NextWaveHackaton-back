@@ -23,7 +23,7 @@ async function bootstrap() {
       const ok =
         allowed.includes(origin) ||
         /^https:\/\/[a-z0-9-]+\.vercel\.app$/.test(origin);
-      return ok ? cb(null, true) : cb(new Error(`CORS bloqueado: ${origin}`), false);
+      return ok ? cb(null, true) : cb(new Error(`CORS blocked: ${origin}`), false);
     },
     credentials: true,
   });

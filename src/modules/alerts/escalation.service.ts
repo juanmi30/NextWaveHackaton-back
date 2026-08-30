@@ -128,7 +128,7 @@ export class EscalationService {
   /** Acusar recibo detiene la cadena. Es el unico freno junto a resolver. */
   async acknowledge(incidentId: string, recipientId?: string, now = new Date()) {
     const escalation = await this.repository.findEscalationByIncident(incidentId);
-    if (!escalation) throw new NotFoundException(`El incidente ${incidentId} no tiene escalamiento`);
+    if (!escalation) throw new NotFoundException(`Incident ${incidentId} has no escalation`);
 
     return this.repository.updateEscalation(escalation.id, {
       status: 'ACKNOWLEDGED',
@@ -207,7 +207,7 @@ export class EscalationService {
             role: recipient.role,
             channel,
             status: 'SKIPPED',
-            error: `El destinatario no tiene ${channel === 'EMAIL' ? 'correo' : 'telefono'}`,
+            error: `The recipient has no ${channel === 'EMAIL' ? 'email address' : 'phone number'}`,
           });
           continue;
         }
@@ -259,23 +259,24 @@ export class EscalationService {
       return { id: stored.id, definition: toDefinition(stored) };
     }
     throw new NotFoundException(
-      'No hay politicas de escalamiento cargadas. Ejecuta POST /api/alerts/seed.',
+      'No escalation policies are configured. Run POST /api/alerts/seed.',
     );
   }
 }
 
 function toDefinition(policy: EscalationPolicyRow): EscalationPolicyDefinition {
+  const canonical = DEFAULT_POLICIES.find((definition) => definition.name === policy.name);
   return {
     name: policy.name,
     minSeverity: policy.minSeverity,
     maxSeverity: policy.maxSeverity,
-    description: policy.description ?? '',
+    description: canonical?.description ?? policy.description ?? '',
     steps: policy.steps
       .map(
         (step): EscalationStepDefinition => ({
           level: step.level,
           waitMinutes: step.waitMinutes,
-          label: step.label,
+          label: canonical?.steps.find((candidate) => candidate.level === step.level)?.label ?? step.label,
           roles: step.roles as RecipientRole[],
           includeSpecialists: step.includeSpecialists,
           channels: step.channels as NotificationChannel[],
@@ -297,9 +298,9 @@ function channelTarget(recipient: RecipientRow, channel: NotificationChannel): s
 
 function describeRouting(specialistRoles: RecipientRole[], role: RecipientRole): string {
   if (specialistRoles.includes(role)) {
-    return 'Te llega porque la causa raiz diagnosticada cae en tu especialidad.';
+    return 'You received this alert because the diagnosed root cause falls within your specialty.';
   }
-  return 'Te llega por escalamiento: el nivel anterior no acuso recibo dentro de la ventana.';
+  return 'You received this alert through escalation because the previous level did not acknowledge it within the configured window.';
 }
 
 export { DEFAULT_POLICIES, selectPolicy };

@@ -41,8 +41,20 @@ export class AlertsDirectoryService {
     return this.repository.deactivateRecipient(id);
   }
 
-  listPolicies() {
-    return this.repository.listPolicies();
+  async listPolicies() {
+    const policies = await this.repository.listPolicies();
+    return policies.map((policy) => {
+      const canonical = DEFAULT_POLICIES.find((definition) => definition.name === policy.name);
+      if (!canonical) return policy;
+      return {
+        ...policy,
+        description: canonical.description,
+        steps: policy.steps.map((step) => ({
+          ...step,
+          label: canonical.steps.find((candidate) => candidate.level === step.level)?.label ?? step.label,
+        })),
+      };
+    });
   }
 
   /**
@@ -122,7 +134,7 @@ export class AlertsDirectoryService {
       { name: 'Provider Manager', role: 'PROVIDER_MANAGER' },
       { name: 'Risk Analyst', role: 'RISK_ANALYST' },
       { name: 'Merchant Success', role: 'MERCHANT_SUCCESS' },
-      { name: 'Payments Ops (guardia)', role: 'PAYMENTS_OPS' },
+      { name: 'Payments Ops (on call)', role: 'PAYMENTS_OPS' },
       { name: 'Yuno Admin', role: 'ADMIN' },
     ];
 

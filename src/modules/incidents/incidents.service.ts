@@ -4,6 +4,7 @@ import type { QueryIncidentsDto } from './dto/query-incidents.dto.js';
 import type { Prisma } from '../../generated/prisma/client.js';
 import { calculateIncidentPriority } from '../../common/detection-metrics.js';
 import { EscalationService } from '../alerts/escalation.service.js';
+import { presentIncident } from './incident-presentation.js';
 
 @Injectable()
 export class IncidentsService {
@@ -18,16 +19,19 @@ export class IncidentsService {
     };
     const incidents = await this.repository.findMany(where, query.limit ?? 50);
     return incidents
-      .map((incident) => ({
-        ...incident,
-        priorityScore: calculateIncidentPriority({
-          lossPerMinuteCents: incident.lossPerMinuteCents,
-          severity: incident.severity,
-          confidence: incident.diagnoses[0]?.confidence ?? 0,
-          lostApprovals: incident.lostApprovals,
-          evidenceSufficient: incident.diagnoses.length > 0,
-        }),
-      }))
+      .map((storedIncident) => {
+        const incident = presentIncident(storedIncident);
+        return {
+          ...incident,
+          priorityScore: calculateIncidentPriority({
+            lossPerMinuteCents: incident.lossPerMinuteCents,
+            severity: incident.severity,
+            confidence: incident.diagnoses[0]?.confidence ?? 0,
+            lostApprovals: incident.lostApprovals,
+            evidenceSufficient: incident.diagnoses.length > 0,
+          }),
+        };
+      })
       .sort((left, right) => right.priorityScore - left.priorityScore)
       .map((incident, index) => ({ ...incident, priorityRank: index + 1 }));
   }
@@ -35,7 +39,7 @@ export class IncidentsService {
   async findOne(id: string) {
     const incident = await this.repository.findOne(id);
     if (!incident) throw new NotFoundException(`Incident ${id} not found`);
-    return incident;
+    return presentIncident(incident);
   }
 
   /** Incidentes resueltos con exactamente el mismo fingerprint normalizado. */
@@ -51,7 +55,7 @@ export class IncidentsService {
     return {
       anchorFingerprint: incident.anchorFingerprint,
       isRecurrence: previousOccurrences.length > 0,
-      previousOccurrences,
+      previousOccurrences: previousOccurrences.map((row) => presentIncident(row)),
     };
   }
 
@@ -71,12 +75,14 @@ export class IncidentsService {
     // Acusar recibo sobre el incidente detiene el escalamiento: para el
     // operador son la misma accion.
     await this.escalation.acknowledge(id, recipientId).catch(() => undefined);
-    return this.repository.update(id, { status: 'ACKNOWLEDGED' });
+    return presentIncident(await this.repository.update(id, { status: 'ACKNOWLEDGED' }));
   }
 
   async resolve(id: string) {
     await this.findOne(id);
     await this.escalation.close(id).catch(() => undefined);
-    return this.repository.update(id, { status: 'RESOLVED', resolvedAt: new Date() });
+    return presentIncident(
+      await this.repository.update(id, { status: 'RESOLVED', resolvedAt: new Date() }),
+    );
   }
 }

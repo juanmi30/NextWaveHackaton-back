@@ -47,6 +47,7 @@ export class IncidentsRepository {
   findResolvedByFingerprint(fingerprint: string, take = 5) {
     return this.prisma.incident.findMany({
       where: { fingerprint, status: 'RESOLVED' },
+      include: WITH_LATEST_DIAGNOSIS,
       orderBy: { detectedAt: 'desc' },
       take,
     });

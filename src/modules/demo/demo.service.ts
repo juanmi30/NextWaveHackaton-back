@@ -105,7 +105,7 @@ export class DemoService {
     if (options.reset) {
       await this.resetDemoData();
     } else if ((await this.transactionsRepo.count()) > 0) {
-      return { seeded: false, reason: 'Ya existen transacciones. Usa reset=true para regenerar.' };
+      return { seeded: false, reason: 'Transactions already exist. Use reset=true to regenerate them.' };
     }
 
     await this.fx.ensureSeeded();
@@ -143,9 +143,9 @@ export class DemoService {
       currencies: [...new Set(ROUTES.map((route) => route.currency))].sort(),
       historyHours,
       next: [
-        'POST /api/detection/run  -> deberia responder NO_ANOMALY',
-        'POST /api/demo/inject-incident -> inyecta una degradacion',
-        'POST /api/detection/run  -> deberia responder INCIDENTS_FOUND',
+        'POST /api/detection/run -> should return NO_ANOMALY',
+        'POST /api/demo/inject-incident -> injects a degradation',
+        'POST /api/detection/run -> should return INCIDENTS_FOUND',
       ],
     };
   }
