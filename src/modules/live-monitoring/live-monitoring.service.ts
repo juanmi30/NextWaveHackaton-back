@@ -5,6 +5,7 @@ import {
   NotFoundException,
   OnModuleDestroy,
   OnModuleInit,
+  RequestTimeoutException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
@@ -37,6 +38,8 @@ export class LiveMonitoringService implements OnModuleInit, OnModuleDestroy {
   private heartbeatTimer?: ReturnType<typeof setInterval>;
   private generatorRunning = false;
   private detectionRunning = false;
+  private detectionSettled: Promise<void> | null = null;
+  private resolveDetectionSettled: (() => void) | null = null;
   private generatedTransactions = 0;
   private generatorTicks = 0;
   private detectionRuns = 0;
@@ -69,8 +72,8 @@ export class LiveMonitoringService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  onModuleDestroy() {
-    this.stop();
+  async onModuleDestroy() {
+    await this.stop();
   }
 
   async start(dto: StartLiveMonitorDto) {
@@ -119,11 +122,12 @@ export class LiveMonitoringService implements OnModuleInit, OnModuleDestroy {
     return this.status();
   }
 
-  stop() {
-    if (this.state === 'STOPPED') return this.status();
+  async stop() {
+    const wasRunning = this.state === 'RUNNING';
     this.clearTimers();
     this.state = 'STOPPED';
-    this.events.emit({ type: 'monitor_stopped' });
+    if (this.detectionSettled) await this.waitForDetectionToSettle(this.detectionSettled);
+    if (wasRunning) this.events.emit({ type: 'monitor_stopped' });
     return this.status();
   }
 
@@ -224,6 +228,9 @@ export class LiveMonitoringService implements OnModuleInit, OnModuleDestroy {
       return;
     }
     this.detectionRunning = true;
+    this.detectionSettled = new Promise<void>((resolve) => {
+      this.resolveDetectionSettled = resolve;
+    });
     this.events.emit({ type: 'detection_started' });
     try {
       const result = await this.detection.run({
@@ -254,6 +261,26 @@ export class LiveMonitoringService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(`Automatic detection failed: ${this.lastDetectionError}`);
     } finally {
       this.detectionRunning = false;
+      this.resolveDetectionSettled?.();
+      this.resolveDetectionSettled = null;
+      this.detectionSettled = null;
+    }
+  }
+
+  private async waitForDetectionToSettle(inFlight: Promise<void>, timeoutMs = 30_000) {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        inFlight,
+        new Promise<never>((_resolve, reject) => {
+          timeout = setTimeout(
+            () => reject(new RequestTimeoutException('Timed out waiting for active Detection run')),
+            timeoutMs,
+          );
+        }),
+      ]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
     }
   }
 

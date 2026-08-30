@@ -7,6 +7,7 @@ import { BaselinesService } from '../baselines/baselines.service.js';
 import type { CreateTransactionDto, PaymentStatusValue } from '../transactions/dto/create-transaction.dto.js';
 import type { InjectIncidentDto } from './dto/inject-incident.dto.js';
 import type { InjectPredictiveRiskDto } from './dto/inject-predictive-risk.dto.js';
+import { DetectionRepository } from '../detection/detection.repository.js';
 
 type Route = {
   merchant: string;
@@ -53,6 +54,7 @@ export class DemoService {
     private readonly transactionsRepo: TransactionsRepository,
     private readonly incidents: IncidentsRepository,
     private readonly baselines: BaselinesService,
+    private readonly detectionRuns: DetectionRepository,
   ) {}
 
   /**
@@ -64,8 +66,7 @@ export class DemoService {
     const density = options.density ?? 8;
 
     if (options.reset) {
-      await this.incidents.deleteAll();
-      await this.transactionsRepo.deleteAll();
+      await this.resetDemoData();
     } else if ((await this.transactionsRepo.count()) > 0) {
       return { seeded: false, reason: 'Ya existen transacciones. Usa reset=true para regenerar.' };
     }
@@ -396,9 +397,17 @@ export class DemoService {
   }
 
   async reset() {
-    await this.incidents.deleteAll();
-    await this.transactionsRepo.deleteAll();
+    await this.resetDemoData();
     return { reset: true };
+  }
+
+  private async resetDemoData() {
+    // Destructivo y exclusivo del entorno demo. El orden respeta las FK:
+    // Incident elimina diagnoses/evidence por cascade antes de DetectionRun.
+    await this.incidents.deleteAll();
+    await this.detectionRuns.deleteAll();
+    await this.transactionsRepo.deleteAll();
+    await this.baselines.clear();
   }
 
   private async insertInChunks(rows: CreateTransactionDto[], chunkSize = 500) {

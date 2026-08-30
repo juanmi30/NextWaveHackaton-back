@@ -63,10 +63,18 @@ async function main() {
     failureReason: 'DO_NOT_HONOR',
     targetTransactionsPerTick: 40,
   });
-  await waitUntil(async () => {
+  const firstIncidents = await waitUntil(async () => {
     const incidents = await get('/incidents?status=OPEN');
-    return incidents.length >= 1 && incidents;
+    return incidents.length === 1 && incidents;
   });
+  if (firstIncidents.length !== 1) throw new Error('One partial degradation must create one incident');
+  const affectedTraffic = await waitUntil(async () => {
+    const rows = await get('/transactions?provider=Adyen&country=BR&limit=200');
+    const banks = new Set(rows.map((row) => row.issuingBank));
+    const methods = new Set(rows.map((row) => row.method));
+    return banks.size >= 2 && methods.size >= 2 && { banks: [...banks], methods: [...methods] };
+  });
+  if (affectedTraffic.banks.length < 2) throw new Error('Partial target concentrated on one bank');
   console.log('[PASS] Live degradation detected');
 
   const degradationB = await post('/live/degradations', {
@@ -78,7 +86,7 @@ async function main() {
   });
   await waitUntil(async () => {
     const incidents = await get('/incidents?status=OPEN');
-    return incidents.length >= 2 && incidents;
+    return incidents.length === 2 && incidents;
   });
   console.log('[PASS] Two simultaneous degradations separated');
 

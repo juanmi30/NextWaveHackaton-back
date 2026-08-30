@@ -192,6 +192,10 @@ El monitor usa timers locales y debe ejecutarse con una sola replica durante el
 hackathon. `LIVE_MONITOR_AUTO_START=false` es el default. No realiza routing,
 remediation ni cleanup automatico de transacciones.
 
+`POST /api/demo/seed?reset=true` es destructivo y exclusivo de demo: limpia
+incidentes (incluyendo diagnoses/evidence), DetectionRun historicos,
+transacciones y baselines antes de reconstruir una sesion reproducible.
+
 ## Guion de demo
 
 ```bash

@@ -131,6 +131,31 @@ describe('LiveMonitoringService', () => {
     service.stop();
   });
 
+  it('waits for an in-flight Detection run before returning STOPPED', async () => {
+    let resolveDetection!: (value: unknown) => void;
+    const slowDetection = vi.fn(
+      () => new Promise((resolve) => {
+        resolveDetection = resolve;
+      }),
+    );
+    const { service } = setup({ detection: slowDetection });
+    await service.start({ detectionIntervalMs: 1_000 });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    let stopResolved = false;
+    const stopping = service.stop().then((status) => {
+      stopResolved = true;
+      return status;
+    });
+    await Promise.resolve();
+    expect(stopResolved).toBe(false);
+    expect(service.status().detection.running).toBe(true);
+
+    resolveDetection({ runId: 'run-1', outcome: 'NO_ANOMALY', incidents: [] });
+    const stopped = await stopping;
+    expect(stopped).toMatchObject({ state: 'STOPPED', detection: { running: false } });
+  });
+
   it('isolates detection errors while generation continues', async () => {
     const detection = vi.fn().mockRejectedValue(new Error('database timeout'));
     const { service, generator } = setup({ detection });

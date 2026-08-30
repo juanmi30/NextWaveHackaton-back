@@ -202,6 +202,10 @@ export class BaselinesService {
   list(dimensionKey?: string) {
     return this.repository.findMany(dimensionKey);
   }
+
+  clear() {
+    return this.repository.replaceAll([]);
+  }
 }
 
 function pick(tx: Record<string, unknown>, combo: Dimension[]): DimensionMap | null {
