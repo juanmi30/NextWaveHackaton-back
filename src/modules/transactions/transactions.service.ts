@@ -7,6 +7,10 @@ import type {
 } from './dto/create-transaction.dto.js';
 import type { QueryTransactionsDto } from './dto/query-transactions.dto.js';
 import type { Prisma } from '../../generated/prisma/client.js';
+import {
+  canonicalToYunoStatus,
+  classifyTransaction,
+} from '../../common/yuno-taxonomy.js';
 
 @Injectable()
 export class TransactionsService {
@@ -63,14 +67,44 @@ export class TransactionsService {
     const currency = dto.currency ?? 'USD';
     const { amountUsdCents, fxRateId } = await this.fx.convert(dto.amountCents, currency, occurredAt);
 
+    /*
+     * Semantica Yuno derivada. Si el emisor no manda `responseCode` se deriva
+     * de los campos antiguos, y si no manda `yunoStatus` se deriva del status
+     * canonico. Asi las transacciones nuevas quedan completas aunque el
+     * generador que las creo sea de la version anterior.
+     */
+    const responseCode =
+      dto.responseCode ??
+      dto.declineCode ??
+      dto.errorType ??
+      (dto.status === 'TIMEOUT' ? 'PROVIDER_TIMEOUT' : null);
+
+    const yunoStatus =
+      dto.yunoStatus ?? canonicalToYunoStatus(dto.status);
+
+    const classification = classifyTransaction({
+      responseCode,
+      transactionStatus: yunoStatus,
+      merchantAdviceCode: dto.merchantAdviceCode,
+    });
+
     return {
       externalId: dto.externalId ?? null,
+      paymentId: dto.paymentId ?? null,
+      attemptNumber: dto.attemptNumber ?? 1,
+      transactionType: dto.transactionType ?? 'PURCHASE',
+      yunoStatus,
+      responseCode,
+      merchantAdviceCode: dto.merchantAdviceCode ?? null,
+      providerResponseCode: dto.providerResponseCode ?? null,
       merchant: dto.merchant,
       provider: dto.provider,
       method: dto.method,
       country: dto.country,
       issuingBank: dto.issuingBank,
-      failureReason: deriveFailureReason(dto.status, dto.declineCode, dto.errorType),
+      failureReason:
+        classification?.code ??
+        deriveFailureReason(dto.status, dto.declineCode, dto.errorType),
       status: dto.status,
       declineCode: dto.declineCode ?? null,
       errorType: dto.errorType ?? null,

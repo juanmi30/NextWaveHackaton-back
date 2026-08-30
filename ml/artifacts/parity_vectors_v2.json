@@ -1,0 +1,83 @@
+[
+  {
+    "name": "ruta sana de madrugada en Bogota",
+    "at": "2026-08-30T07:00:00Z",
+    "timeZone": "America/Bogota",
+    "localHour": 2,
+    "values": {
+      "baseline_approval_rate": 0.88,
+      "approval_drop": 0.005,
+      "approval_slope": 0.0,
+      "p95_latency_ms": 640.0,
+      "latency_slope": 2.0,
+      "provider_error_rate": 0.004,
+      "provider_timeout_rate": 0.003,
+      "provider_failure_slope": 0.0,
+      "rejected_rate": 0.003,
+      "issuer_decline_rate": 0.05,
+      "auth_3ds_failure_rate": 0.004,
+      "fraud_screening_failure_rate": 0.005,
+      "data_quality_failure_rate": 0.01,
+      "provider_config_failure_rate": 0.0,
+      "hard_decline_share": 0.2,
+      "retry_attempt_rate": 0.08,
+      "local_time_sin": 0.49999999999999994,
+      "local_time_cos": 0.8660254037844387
+    },
+    "expectedProbability": 0.39872173153681273
+  },
+  {
+    "name": "degradacion de latencia en Sao Paulo por la tarde",
+    "at": "2026-08-30T18:30:00Z",
+    "timeZone": "America/Sao_Paulo",
+    "localHour": 15,
+    "values": {
+      "baseline_approval_rate": 0.92,
+      "approval_drop": 0.06,
+      "approval_slope": -0.03,
+      "p95_latency_ms": 2400.0,
+      "latency_slope": 420.0,
+      "provider_error_rate": 0.04,
+      "provider_timeout_rate": 0.05,
+      "provider_failure_slope": 0.02,
+      "rejected_rate": 0.004,
+      "issuer_decline_rate": 0.03,
+      "auth_3ds_failure_rate": 0.004,
+      "fraud_screening_failure_rate": 0.003,
+      "data_quality_failure_rate": 0.008,
+      "provider_config_failure_rate": 0.0,
+      "hard_decline_share": 0.15,
+      "retry_attempt_rate": 0.22,
+      "local_time_sin": -0.7933533402912349,
+      "local_time_cos": -0.6087614290087209
+    },
+    "expectedProbability": 0.990740070814968
+  },
+  {
+    "name": "misma hora local (02:00) en Madrid \u2014 invariancia de fase",
+    "at": "2026-08-30T00:00:00Z",
+    "timeZone": "Europe/Madrid",
+    "localHour": 2,
+    "values": {
+      "baseline_approval_rate": 0.88,
+      "approval_drop": 0.005,
+      "approval_slope": 0.0,
+      "p95_latency_ms": 640.0,
+      "latency_slope": 2.0,
+      "provider_error_rate": 0.004,
+      "provider_timeout_rate": 0.003,
+      "provider_failure_slope": 0.0,
+      "rejected_rate": 0.003,
+      "issuer_decline_rate": 0.05,
+      "auth_3ds_failure_rate": 0.004,
+      "fraud_screening_failure_rate": 0.005,
+      "data_quality_failure_rate": 0.01,
+      "provider_config_failure_rate": 0.0,
+      "hard_decline_share": 0.2,
+      "retry_attempt_rate": 0.08,
+      "local_time_sin": 0.49999999999999994,
+      "local_time_cos": 0.8660254037844387
+    },
+    "expectedProbability": 0.39872173153681273
+  }
+]

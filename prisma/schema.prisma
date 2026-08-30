@@ -52,6 +52,16 @@ model Transaction {
   errorType   String?
   latencyMs   Int?
 
+  // --- Semantica Yuno (v2). Todo opcional y aditivo.
+  // --- https://docs.y.uno/reference/payments/status-and-response-codes/transaction
+  paymentId            String?
+  attemptNumber        Int?    @default(1)
+  transactionType      String?
+  yunoStatus           String?
+  responseCode         String?
+  merchantAdviceCode   String?
+  providerResponseCode String?
+
   amountCents    Int
   currency       String  @default("USD")
   amountUsdCents Int     @default(0)
@@ -65,6 +75,9 @@ model Transaction {
   @@index([merchant, issuingBank, occurredAt])
   @@index([method, country, occurredAt])
   @@index([failureReason, occurredAt])
+  @@index([responseCode, occurredAt])
+  @@index([yunoStatus, occurredAt])
+  @@index([paymentId])
 }
 
 model FxRate {
