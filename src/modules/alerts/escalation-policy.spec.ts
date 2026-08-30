@@ -31,7 +31,7 @@ describe('nextEscalationAt', () => {
 
   it('devuelve null cuando la politica se agota', () => {
     expect(nextEscalationAt(selectPolicy(4), 3, openedAt)).toBeNull();
-    expect(nextEscalationAt(selectPolicy(1), 2, openedAt)).toBeNull();
+    expect(nextEscalationAt(selectPolicy(1), 3, openedAt)).toBeNull();
   });
 
   it('los tiempos se acortan al subir la severidad', () => {
@@ -71,6 +71,12 @@ describe('estructura de las politicas', () => {
     for (const policy of DEFAULT_POLICIES) {
       const last = policy.steps[policy.steps.length - 1]!;
       expect(last.roles.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('todas tienen tres niveles de escalamiento', () => {
+    for (const policy of DEFAULT_POLICIES) {
+      expect(policy.steps.map((step) => step.level)).toEqual([1, 2, 3]);
     }
   });
 });

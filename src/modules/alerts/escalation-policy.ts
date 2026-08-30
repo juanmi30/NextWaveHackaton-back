@@ -99,7 +99,7 @@ export const DEFAULT_POLICIES: EscalationPolicyDefinition[] = [
     name: 'standard',
     minSeverity: 0,
     maxSeverity: 2,
-    description: 'Severidad baja o media: no despierta a nadie.',
+    description: 'Severidad baja o media: escalamiento completo con ventanas amplias.',
     steps: [
       {
         level: 1,
@@ -116,6 +116,14 @@ export const DEFAULT_POLICIES: EscalationPolicyDefinition[] = [
         includeSpecialists: true,
         channels: ['EMAIL'],
         label: 'Sin acuse en 45 min: guardia de operaciones',
+      },
+      {
+        level: 3,
+        waitMinutes: 120,
+        roles: ['ADMIN'],
+        includeSpecialists: true,
+        channels: ['EMAIL'],
+        label: 'Sin acuse en 120 min: administracion',
       },
     ],
   },

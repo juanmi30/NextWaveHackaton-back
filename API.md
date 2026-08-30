@@ -95,6 +95,25 @@ PATCH  /api/incidents/:id/resolve
 El listado incluye el diagnostico vigente con sus filas de evidencia.
 `/history` responde si el incidente es una recurrencia de uno ya resuelto.
 
+### Alertas y escalamiento
+```
+POST   /api/alerts/seed?resetRecipients=false
+GET    /api/alerts/recipients?includeInactive=false
+POST   /api/alerts/recipients
+DELETE /api/alerts/recipients/:id
+GET    /api/alerts/policies
+POST   /api/alerts/preview
+GET    /api/alerts/escalations?status=PENDING&limit=50
+GET    /api/alerts/escalations/:incidentId
+POST   /api/alerts/escalations/tick?at=<iso>
+POST   /api/alerts/escalations/:incidentId/acknowledge
+```
+
+Todas las politicas por defecto tienen tres niveles. Para severidad baja/media
+(`standard`), el escalamiento es especialista (0 min), guardia de operaciones
+(45 min) y administracion (120 min). El acuse desde `/incidents/:id/acknowledge`
+tambien detiene la cadena de escalamiento.
+
 ### Analitica
 ```
 GET    /api/analytics/summary?windowMinutes=60
