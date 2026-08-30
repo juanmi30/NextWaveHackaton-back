@@ -3,6 +3,7 @@ import type { TransactionsRepository } from '../transactions/transactions.reposi
 import type { LiveDegradation } from './live-monitoring.types.js';
 import {
   LiveTransactionGeneratorService,
+  compatibleTargetRoutes,
   matchesDimensions,
   selectDegradation,
 } from './live-transaction-generator.service.js';
@@ -48,6 +49,35 @@ describe('LiveTransactionGeneratorService', () => {
     const transaction = { provider: 'Adyen', country: 'BR', method: 'CARD' };
     expect(matchesDimensions(transaction, { provider: 'Adyen' })).toBe(true);
     expect(matchesDimensions(transaction, { provider: 'Adyen', country: 'MX' })).toBe(false);
+  });
+
+  it('finds every existing child route for a partial Adyen/BR target', () => {
+    const routes = compatibleTargetRoutes({ provider: 'Adyen', country: 'BR' });
+    expect(new Set(routes.map((route) => route.issuingBank))).toEqual(
+      new Set(['Bradesco', 'Itau', 'Nubank']),
+    );
+    expect(new Set(routes.map((route) => route.method))).toEqual(
+      new Set(['CARD', 'PIX', 'WALLET']),
+    );
+  });
+
+  it('distributes partial-target extra volume across compatible route profiles', async () => {
+    const { generator, createMany } = setup();
+    const partial = degradation('partial', { provider: 'Adyen', country: 'BR' }, 0);
+    partial.targetTransactionsPerTick = 30;
+    await generator.generate(0, [partial]);
+
+    const rows = createMany.mock.calls[0]![0] as Array<Record<string, unknown>>;
+    expect(new Set(rows.map((row) => row.issuingBank))).toEqual(
+      new Set(['Bradesco', 'Itau', 'Nubank']),
+    );
+    expect(new Set(rows.map((row) => row.method))).toEqual(new Set(['CARD', 'PIX', 'WALLET']));
+    expect(rows.every((row) => row.provider === 'Adyen' && row.country === 'BR')).toBe(true);
+  });
+
+  it('does not affect a non-matching Stripe/MX route', () => {
+    const partial = degradation('partial', { provider: 'Adyen', country: 'BR' }, 0.25);
+    expect(selectDegradation({ provider: 'Stripe', country: 'MX' }, [partial])).toBeUndefined();
   });
 
   it('selects the most specific overlapping degradation', () => {

@@ -16,7 +16,10 @@ const NORMAL_ROUTES: RouteProfile[] = [
   { merchant: 'Nova Travel', provider: 'Stripe', method: 'PSE', country: 'CO', issuingBank: 'Davivienda', approvalRate: 0.92, weight: 2 },
   { merchant: 'Mercado Uno', provider: 'dLocal', method: 'PIX', country: 'BR', issuingBank: 'Itau', approvalRate: 0.94, weight: 3 },
   { merchant: 'Mercado Uno', provider: 'Adyen', method: 'CARD', country: 'BR', issuingBank: 'Bradesco', approvalRate: 0.91, weight: 2 },
+  { merchant: 'Mercado Uno', provider: 'Adyen', method: 'CARD', country: 'BR', issuingBank: 'Itau', approvalRate: 0.9, weight: 2 },
   { merchant: 'Mercado Uno', provider: 'Adyen', method: 'CARD', country: 'BR', issuingBank: 'Nubank', approvalRate: 0.89, weight: 2 },
+  { merchant: 'Mercado Uno', provider: 'Adyen', method: 'PIX', country: 'BR', issuingBank: 'Itau', approvalRate: 0.92, weight: 2 },
+  { merchant: 'Mercado Uno', provider: 'Adyen', method: 'WALLET', country: 'BR', issuingBank: 'Nubank', approvalRate: 0.89, weight: 1 },
 ];
 
 const DECLINE_CODES = ['DO_NOT_HONOR', 'INSUFFICIENT_FUNDS', 'EXPIRED_CARD'];
@@ -38,8 +41,7 @@ export class LiveTransactionGeneratorService {
       rows.push(this.makeTransaction(route, degradations, now));
     }
     for (const degradation of degradations) {
-      const route = targetRoute(degradation.dimensions);
-      for (let index = 0; index < degradation.targetTransactionsPerTick; index++) {
+      for (const route of targetRoutes(degradation, this.random)) {
         rows.push(this.makeTransaction(route, degradations, now));
       }
     }
@@ -102,27 +104,47 @@ export function selectDegradation(
     )[0];
 }
 
-function targetRoute(dimensions: DimensionMap): RouteProfile {
-  const base = NORMAL_ROUTES.find((route) => matchesDimensions(route, dimensions)) ?? NORMAL_ROUTES[0]!;
-  return {
-    merchant: dimensions.merchant ?? base.merchant,
-    provider: dimensions.provider ?? base.provider,
-    method: dimensions.method ?? base.method,
-    country: dimensions.country ?? base.country,
-    issuingBank: dimensions.issuingBank ?? base.issuingBank,
-    approvalRate: base.approvalRate,
-    weight: 1,
-  };
+export function compatibleTargetRoutes(dimensions: DimensionMap) {
+  return NORMAL_ROUTES.filter((route) => matchesDimensions(route, dimensions));
+}
+
+function targetRoutes(degradation: LiveDegradation, random: () => number): RouteProfile[] {
+  const compatible = compatibleTargetRoutes(degradation.dimensions);
+  if (compatible.length === 0) {
+    const base = NORMAL_ROUTES[0]!;
+    const synthetic = {
+      merchant: degradation.dimensions.merchant ?? base.merchant,
+      provider: degradation.dimensions.provider ?? base.provider,
+      method: degradation.dimensions.method ?? base.method,
+      country: degradation.dimensions.country ?? base.country,
+      issuingBank: degradation.dimensions.issuingBank ?? base.issuingBank,
+      approvalRate: base.approvalRate,
+      weight: 1,
+    };
+    return Array.from({ length: degradation.targetTransactionsPerTick }, () => synthetic);
+  }
+
+  const selected: RouteProfile[] = [];
+  // Cuando alcanza el volumen, garantizar representacion de cada child compatible.
+  if (degradation.targetTransactionsPerTick >= compatible.length) selected.push(...compatible);
+  while (selected.length < degradation.targetTransactionsPerTick) {
+    selected.push(weightedFrom(compatible, random));
+  }
+  return selected.slice(0, degradation.targetTransactionsPerTick);
 }
 
 function weightedRoute(random: () => number) {
-  const total = NORMAL_ROUTES.reduce((sum, route) => sum + route.weight, 0);
+  return weightedFrom(NORMAL_ROUTES, random);
+}
+
+function weightedFrom(routes: RouteProfile[], random: () => number) {
+  const total = routes.reduce((sum, route) => sum + route.weight, 0);
   let roll = random() * total;
-  for (const route of NORMAL_ROUTES) {
+  for (const route of routes) {
     roll -= route.weight;
     if (roll <= 0) return route;
   }
-  return NORMAL_ROUTES[0]!;
+  return routes[0]!;
 }
 
 function specificity(dimensions: DimensionMap) {

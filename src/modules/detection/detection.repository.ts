@@ -73,4 +73,8 @@ export class DetectionRepository {
       where: { id },
     });
   }
+
+  deleteAll() {
+    return this.prisma.detectionRun.deleteMany();
+  }
 }
