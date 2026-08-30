@@ -3,6 +3,7 @@ import type { DimensionMap } from '../../common/dimensions.js';
 import type { BaselineLookup } from '../baselines/baselines.service.js';
 import {
   anchorFor,
+  alertRoutingFingerprint,
   baselineConfidenceFactor,
   bestEffort,
   buildEvidenceRows,
@@ -191,6 +192,34 @@ describe('incident persistence and evidence', () => {
         expect.objectContaining({ dimension: 'controlSibling', dimensionValue: control.segmentKey }),
       ]),
     );
+  });
+
+  it('enriches alert routing with a dominant failure reason when the fingerprint is broad', () => {
+    expect(
+      alertRoutingFingerprint('country=MX|provider=Stripe', [
+        {
+          code: 'INVALID_CVV',
+          count: 80,
+          shareOfDeclines: 0.8,
+          baselineShare: 0.02,
+          shareDelta: 0.78,
+        },
+      ]),
+    ).toBe('country=MX|failureReason=INVALID_CVV|provider=Stripe');
+  });
+
+  it('keeps broad alert routing when no failure reason dominates', () => {
+    expect(
+      alertRoutingFingerprint('country=MX|provider=Stripe', [
+        {
+          code: 'INVALID_CVV',
+          count: 40,
+          shareOfDeclines: 0.4,
+          baselineShare: 0.02,
+          shareDelta: 0.38,
+        },
+      ]),
+    ).toBe('country=MX|provider=Stripe');
   });
 });
 
