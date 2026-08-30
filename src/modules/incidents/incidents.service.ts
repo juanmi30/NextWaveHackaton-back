@@ -3,10 +3,13 @@ import { IncidentsRepository } from './incidents.repository.js';
 import type { QueryIncidentsDto } from './dto/query-incidents.dto.js';
 import type { Prisma } from '../../generated/prisma/client.js';
 import { calculateIncidentPriority } from '../../common/detection-metrics.js';
+import { EscalationService } from '../alerts/escalation.service.js';
 
 @Injectable()
 export class IncidentsService {
-  constructor(private readonly repository: IncidentsRepository) {}
+  constructor(private readonly repository: IncidentsRepository,
+    private readonly escalation: EscalationService,
+  ) {}
 
   async findAll(query: QueryIncidentsDto) {
     const where: Prisma.IncidentWhereInput = {
@@ -63,13 +66,17 @@ export class IncidentsService {
     return { open, acknowledged, resolved, highCritical };
   }
 
-  async acknowledge(id: string) {
+  async acknowledge(id: string, recipientId?: string) {
     await this.findOne(id);
+    // Acusar recibo sobre el incidente detiene el escalamiento: para el
+    // operador son la misma accion.
+    await this.escalation.acknowledge(id, recipientId).catch(() => undefined);
     return this.repository.update(id, { status: 'ACKNOWLEDGED' });
   }
 
   async resolve(id: string) {
     await this.findOne(id);
+    await this.escalation.close(id).catch(() => undefined);
     return this.repository.update(id, { status: 'RESOLVED', resolvedAt: new Date() });
   }
 }

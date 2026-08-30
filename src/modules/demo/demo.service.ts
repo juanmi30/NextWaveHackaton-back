@@ -8,6 +8,7 @@ import type { CreateTransactionDto, PaymentStatusValue } from '../transactions/d
 import type { InjectIncidentDto } from './dto/inject-incident.dto.js';
 import type { InjectPredictiveRiskDto } from './dto/inject-predictive-risk.dto.js';
 import { DetectionRepository } from '../detection/detection.repository.js';
+import { DetectionService } from '../detection/detection.service.js';
 
 type Route = {
   merchant: string;
@@ -55,6 +56,7 @@ export class DemoService {
     private readonly incidents: IncidentsRepository,
     private readonly baselines: BaselinesService,
     private readonly detectionRuns: DetectionRepository,
+    private readonly detection: DetectionService,
   ) {}
 
   /**
@@ -417,6 +419,74 @@ export class DemoService {
       inserted += result.inserted;
     }
     return inserted;
+  }
+
+  async runIncidentScenario(
+    dto: InjectIncidentDto,
+  ) {
+    /*
+    * 1. Únicamente inyectamos telemetría degradada.
+    *    Todavía NO existe un Incident.
+    */
+    const injection =
+      await this.injectIncident(dto);
+
+    /*
+    * 2. Ejecutamos exactamente el mismo detector
+    *    que usaría el sistema real.
+    *
+    * Sus valores por defecto actualmente son:
+    * - windowMinutes: 15
+    * - maxDepth: 3
+    * - minSampleSize: 20
+    * - minZScore: 2.5
+    * - minConfidence: 0.35
+    * - minDrop: 0.10
+    */
+    const detection =
+      await this.detection.run({});
+
+    const incidentIds =
+      detection.incidents.map(
+        (incident) =>
+          incident.incidentId,
+      );
+
+    return {
+      scenario: 'CONFIRMED_INCIDENT',
+
+      injection,
+
+      detection: {
+        runId:
+          detection.runId,
+
+        outcome:
+          detection.outcome,
+
+        combosEvaluated:
+          detection.combosEvaluated,
+
+        incidents:
+          detection.incidents,
+
+        incidentIds,
+      },
+
+      readyFor: {
+        incidents:
+          incidentIds.map(
+            (id) =>
+              `/api/incidents/${id}`,
+          ),
+
+        agent:
+          incidentIds.map(
+            (id) =>
+              `/api/agent/incidents/${id}/analyze`,
+          ),
+      },
+    };
   }
 }
 
