@@ -3,6 +3,7 @@ import {
   type FailureActionability,
   type FailureCategory,
 } from '../../common/payment-failure-taxonomy.js';
+import { alertTeamsForFailureDomain } from '../../common/operational-ownership.js';
 
 /**
  * Roles operativos. No son "niveles" de jerarquia: son especialidades.
@@ -40,8 +41,8 @@ export type RoutingDecision = {
  * A quien le compete un incidente.
  *
  * La decision NO se toma por severidad ni por proveedor concreto: se toma por
- * la CATEGORIA del motivo de fallo, usando la taxonomia de Yuno que ya vive en
- * `common/payment-failure-taxonomy.ts`. Un codigo de rechazo que el equipo
+ * el dominio canonico del motivo de fallo, usando `common/yuno-taxonomy.ts`
+ * mediante su adapter compatible. Un codigo de rechazo que el equipo
  * nunca ha visto cae en UNKNOWN y termina en la guardia general, no en el
  * vacio.
  */
@@ -60,7 +61,7 @@ export function routeIncident(scope: IncidentScope, severity: number): RoutingDe
     };
   }
 
-  const roles = ROLES_BY_CATEGORY[classification.category] ?? ['PAYMENTS_OPS'];
+  const roles: RecipientRole[] = alertTeamsForFailureDomain(classification.failureDomain);
 
   return {
     category: classification.category,
@@ -69,18 +70,6 @@ export function routeIncident(scope: IncidentScope, severity: number): RoutingDe
     reason: buildReason(classification.category, classification.actionability, classification.code),
   };
 }
-
-const ROLES_BY_CATEGORY: Record<FailureCategory, RecipientRole[]> = {
-  DATA_QUALITY: ['CHECKOUT_ENGINEER'],
-  AUTHENTICATION: ['CHECKOUT_ENGINEER'],
-  INTEGRATION: ['INTEGRATIONS_ENGINEER'],
-  PROVIDER_CONFIGURATION: ['INTEGRATIONS_ENGINEER', 'PROVIDER_MANAGER'],
-  FRAUD: ['RISK_ANALYST'],
-  CARD_EXPIRY: ['MERCHANT_SUCCESS'],
-  ISSUER_DECLINE: ['MERCHANT_SUCCESS'],
-  OTHER: ['PAYMENTS_OPS'],
-  UNKNOWN: ['PAYMENTS_OPS'],
-};
 
 /**
  * A partir de severidad 3 la guardia general entra desde el primer aviso.

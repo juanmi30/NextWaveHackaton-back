@@ -153,6 +153,39 @@ no calcula confidence explicable ni impacto contrafactual. Los controles sanos
 solo descartan generalizaciones y el trace expone evidencia observable, no
 razonamiento privado.
 
+P5.2 agrega tambien `declineIntelligence` y `operationalOwnership`. Ambos se
+derivan en backend desde `failureReason` y la taxonomia canonica de Yuno; el LLM
+no clasifica codigos ni decide ownership. Si no existe `failureReason`,
+`declineIntelligence` es `null` y ownership cae de forma segura en
+`PAYMENTS_OPS`. Ninguna recomendacion ejecuta remediation.
+
+Ejemplo aditivo para frontend:
+
+```json
+{
+  "declineIntelligence": {
+    "responseCode": "DO_NOT_HONOR",
+    "transactionStatus": "DECLINED",
+    "declineType": "SOFT",
+    "failureDomain": "ISSUER",
+    "actionability": "ISSUER_SIDE",
+    "retryAdvice": "UNKNOWN",
+    "unknownCode": false
+  },
+  "operationalOwnership": {
+    "suspectedDomain": "ISSUER",
+    "primaryTeam": "MERCHANT_SUCCESS",
+    "supportingTeams": ["PAYMENTS_OPS"],
+    "statement": "Evidence points to an issuer-side failure. Escalate issuer-specific evidence through the provider/acquirer path. No automatic remediation has been executed.",
+    "basis": [
+      "Canonical response code DO_NOT_HONOR maps to ISSUER.",
+      "A supported root cause is present in the diagnosis."
+    ],
+    "requiresHumanApproval": true
+  }
+}
+```
+
 El endpoint `stream` usa SSE (`text/event-stream`) y emite solamente actividad
 publica: `run_started`, `phase_changed`, `tool_started`, `tool_completed`,
 `diagnosis`, `run_completed` o `error`. No expone argumentos/resultados de tools,
