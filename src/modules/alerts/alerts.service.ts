@@ -57,21 +57,28 @@ export class AlertsService {
   ): Promise<DeliveryResult> {
     try {
       if (channel === 'EMAIL') return await this.sendEmail(target, message);
-      if (channel === 'WHATSAPP') return await this.sendWhatsapp(target, message);
-      this.logger.log(`[CONSOLE] ${target}: ${message.subject}`);
-      return { status: 'SENT' };
+      return await this.sendWhatsapp(target, message);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`No se pudo notificar a ${target} por ${channel}: ${reason}`);
+      this.logger.warn(
+        `No se pudo notificar a ${target} por ${channel}: ${reason}`,
+      );
       return { status: 'FAILED', error: reason };
     }
   }
 
   buildMessage(incident: IncidentAlert, context: AlertContext): AlertMessage {
-    return buildIncidentMessage(incident, this.config.get<string>('ALERT_APP_URL')?.trim(), context);
+    return buildIncidentMessage(
+      incident,
+      this.config.get<string>('ALERT_APP_URL')?.trim(),
+      context,
+    );
   }
 
-  private async sendEmail(to: string, message: AlertMessage): Promise<DeliveryResult> {
+  private async sendEmail(
+    to: string,
+    message: AlertMessage,
+  ): Promise<DeliveryResult> {
     if (this.config.get<string>('EMAIL_ALERTS_ENABLED') === 'false') {
       return { status: 'SKIPPED', error: 'EMAIL_ALERTS_ENABLED=false' };
     }
@@ -113,20 +120,26 @@ export class AlertsService {
     return { status: 'SENT' };
   }
 
-  private async sendWhatsapp(to: string, message: AlertMessage): Promise<DeliveryResult> {
+  private async sendWhatsapp(
+    to: string,
+    message: AlertMessage,
+  ): Promise<DeliveryResult> {
     if (this.config.get<string>('WHATSAPP_ALERTS_ENABLED') === 'false') {
       return { status: 'SKIPPED', error: 'WHATSAPP_ALERTS_ENABLED=false' };
     }
 
     const token = this.config.get<string>('WHATSAPP_TOKEN')?.trim();
-    const phoneNumberId = this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID')?.trim();
+    const phoneNumberId = this.config
+      .get<string>('WHATSAPP_PHONE_NUMBER_ID')
+      ?.trim();
 
     if (!token || !phoneNumberId) {
       this.logger.log(`[SIN WHATSAPP] Mensaje para ${to}: ${message.subject}`);
       return { status: 'SKIPPED', error: 'WhatsApp sin configurar' };
     }
 
-    const version = this.config.get<string>('WHATSAPP_GRAPH_API_VERSION')?.trim() || 'v22.0';
+    const version =
+      this.config.get<string>('WHATSAPP_GRAPH_API_VERSION')?.trim() || 'v22.0';
     const url = `https://graph.facebook.com/${version}/${phoneNumberId}/messages`;
 
     const controller = new AbortController();
@@ -154,7 +167,9 @@ export class AlertsService {
 
     if (!response.ok) {
       const body = await response.text();
-      throw new Error(`WhatsApp API respondio ${response.status}: ${body.slice(0, 300)}`);
+      throw new Error(
+        `WhatsApp API respondio ${response.status}: ${body.slice(0, 300)}`,
+      );
     }
 
     this.logger.log(`Alerta por WhatsApp enviada a ${to}`);
@@ -162,7 +177,9 @@ export class AlertsService {
   }
 
   private timeoutMs() {
-    return Number(this.config.get<string>('ALERT_DELIVERY_TIMEOUT_MS') ?? 8_000);
+    return Number(
+      this.config.get<string>('ALERT_DELIVERY_TIMEOUT_MS') ?? 8_000,
+    );
   }
 }
 
@@ -215,13 +232,6 @@ function buildIncidentMessage(
     text: text.join('\n'),
     html: buildIncidentHtml(incident, appUrl, context),
   };
-}
-
-function parseList(value?: string): string[] {
-  return (value ?? '')
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean);
 }
 
 function formatUsd(cents: number): string {
@@ -379,9 +389,12 @@ function tableRow(label: string, value: string): string {
 }
 
 function severityTone(severity: number) {
-  if (severity >= 4) return { label: 'Critico', background: '#991b1b', badge: '#dc2626' };
-  if (severity === 3) return { label: 'Alto', background: '#9a3412', badge: '#ea580c' };
-  if (severity === 2) return { label: 'Medio', background: '#92400e', badge: '#d97706' };
+  if (severity >= 4)
+    return { label: 'Critico', background: '#991b1b', badge: '#dc2626' };
+  if (severity === 3)
+    return { label: 'Alto', background: '#9a3412', badge: '#ea580c' };
+  if (severity === 2)
+    return { label: 'Medio', background: '#92400e', badge: '#d97706' };
   return { label: 'Bajo', background: '#1f2937', badge: '#4b5563' };
 }
 
@@ -394,7 +407,7 @@ function labelize(value?: string): string {
     issuingBank: 'Banco emisor',
     failureReason: 'Motivo de fallo',
   };
-  return value ? labels[value] ?? value : '-';
+  return value ? (labels[value] ?? value) : '-';
 }
 
 function formatDateUtc(date: Date): string {

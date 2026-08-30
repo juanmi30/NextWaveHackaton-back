@@ -25,8 +25,12 @@ describe('selectPolicy', () => {
 describe('nextEscalationAt', () => {
   it('critico escala a los 5 y a los 15 minutos', () => {
     const policy = selectPolicy(4);
-    expect(nextEscalationAt(policy, 1, openedAt)?.toISOString()).toBe('2026-08-29T18:05:00.000Z');
-    expect(nextEscalationAt(policy, 2, openedAt)?.toISOString()).toBe('2026-08-29T18:15:00.000Z');
+    expect(nextEscalationAt(policy, 1, openedAt)?.toISOString()).toBe(
+      '2026-08-29T18:05:00.000Z',
+    );
+    expect(nextEscalationAt(policy, 2, openedAt)?.toISOString()).toBe(
+      '2026-08-29T18:15:00.000Z',
+    );
   });
 
   it('devuelve null cuando la politica se agota', () => {
@@ -77,6 +81,23 @@ describe('estructura de las politicas', () => {
   it('todas tienen tres niveles de escalamiento', () => {
     for (const policy of DEFAULT_POLICIES) {
       expect(policy.steps.map((step) => step.level)).toEqual([1, 2, 3]);
+    }
+  });
+
+  it('usa email y WhatsApp como canales activos de alertas', () => {
+    const activeChannels = new Set(
+      DEFAULT_POLICIES.flatMap((policy) =>
+        policy.steps.flatMap((step) => step.channels),
+      ),
+    );
+    expect([...activeChannels].sort()).toEqual(['EMAIL', 'WHATSAPP']);
+  });
+
+  it('la politica critica emite por WhatsApp en los tres niveles', () => {
+    const critical = selectPolicy(4);
+    for (const step of critical.steps) {
+      expect(step.channels).toContain('EMAIL');
+      expect(step.channels).toContain('WHATSAPP');
     }
   });
 });

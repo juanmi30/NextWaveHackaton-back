@@ -12,16 +12,16 @@ transacciones  ->  baselines      ->  deteccion        ->  incidentes
 
 ## Modulos
 
-| Modulo | Responsabilidad |
-|---|---|
-| `common/` | `dimensions.ts` (claves canonicas, combinaciones) y `stats.ts` (tasas, z-score, confianza) |
-| `fx/` | Tasas por fecha, conversion a USD congelada en ingesta |
-| `transactions/` | Ingesta, normalizacion y agregacion generica por N dimensiones |
-| `baselines/` | Calculo del comportamiento esperado por segmento × hora × dia |
-| `detection/` | Motor de deteccion y diagnostico, auditoria de corridas |
-| `incidents/` | Lectura, historial de diagnosticos, reconocimiento de recurrencias |
-| `analytics/` | Solo lectura: resumen, desglose y series para la UI |
-| `demo/` | Seed de operacion normal e inyeccion de incidentes arbitrarios |
+| Modulo          | Responsabilidad                                                                            |
+| --------------- | ------------------------------------------------------------------------------------------ |
+| `common/`       | `dimensions.ts` (claves canonicas, combinaciones) y `stats.ts` (tasas, z-score, confianza) |
+| `fx/`           | Tasas por fecha, conversion a USD congelada en ingesta                                     |
+| `transactions/` | Ingesta, normalizacion y agregacion generica por N dimensiones                             |
+| `baselines/`    | Calculo del comportamiento esperado por segmento × hora × dia                              |
+| `detection/`    | Motor de deteccion y diagnostico, auditoria de corridas                                    |
+| `incidents/`    | Lectura, historial de diagnosticos, reconocimiento de recurrencias                         |
+| `analytics/`    | Solo lectura: resumen, desglose y series para la UI                                        |
+| `demo/`         | Seed de operacion normal e inyeccion de incidentes arbitrarios                             |
 
 Cada modulo tiene `*.repository.ts` (acceso a datos), `*.service.ts` (logica),
 `*.controller.ts` (HTTP) y `dto/` (validacion).
@@ -31,11 +31,13 @@ Cada modulo tiene `*.repository.ts` (acceso a datos), `*.service.ts` (logica),
 Prefijo global `/api`, excepto `/health`.
 
 ### Salud
+
 ```
 GET    /health
 ```
 
 ### Demo
+
 ```
 POST   /api/demo/seed?reset=true&historyHours=36&density=6
 POST   /api/demo/inject-incident
@@ -48,6 +50,7 @@ POST   /api/demo/reset
 la prueba de fuego: los jueces eligen la combinacion.
 
 ### Transacciones
+
 ```
 POST   /api/transactions
 POST   /api/transactions/bulk
@@ -56,6 +59,7 @@ GET    /api/transactions/count
 ```
 
 ### Baselines
+
 ```
 POST   /api/baselines/rebuild        { lookbackHours, maxDepth, excludeLastMinutes }
 GET    /api/baselines?dimensionKey=
@@ -63,6 +67,7 @@ GET    /api/baselines/count
 ```
 
 ### Deteccion
+
 ```
 POST   /api/detection/run            { windowMinutes, maxDepth, minSampleSize,
                                        minZScore, minConfidence, minDrop }
@@ -83,6 +88,7 @@ por correo y WhatsApp si los canales estan configurados en variables de entorno.
 La deteccion no falla si un canal externo no esta disponible.
 
 ### Incidentes
+
 ```
 GET    /api/incidents?status=OPEN&minSeverity=&limit=
 GET    /api/incidents/stats
@@ -96,6 +102,7 @@ El listado incluye el diagnostico vigente con sus filas de evidencia.
 `/history` responde si el incidente es una recurrencia de uno ya resuelto.
 
 ### Alertas y escalamiento
+
 ```
 POST   /api/alerts/seed?resetRecipients=false
 GET    /api/alerts/recipients?includeInactive=false
@@ -114,7 +121,13 @@ Todas las politicas por defecto tienen tres niveles. Para severidad baja/media
 (45 min) y administracion (120 min). El acuse desde `/incidents/:id/acknowledge`
 tambien detiene la cadena de escalamiento.
 
+Variables de entrega: `EMAIL_ALERTS_ENABLED`, `SMTP_*`, `ALERT_EMAIL_TO`,
+`WHATSAPP_ALERTS_ENABLED`, `WHATSAPP_TO`, `WHATSAPP_GRAPH_API_VERSION`,
+`WHATSAPP_TOKEN` y `WHATSAPP_PHONE_NUMBER_ID`. Si falta SMTP o WhatsApp, la
+notificacion queda como `SKIPPED` y el escalamiento sigue.
+
 ### Analitica
+
 ```
 GET    /api/analytics/summary?windowMinutes=60
 GET    /api/analytics/breakdown?groupBy=provider&timeWindowMinutes=60
@@ -125,12 +138,14 @@ GET    /api/analytics/timeseries?minutes=120&bucketMinutes=5&provider=
 `summary` devuelve `state`: `NORMAL` | `DEGRADED` | `INCIDENT`.
 
 ### FX
+
 ```
 GET    /api/fx/rates
 POST   /api/fx/rates/seed
 ```
 
 ### Payments Diagnostic Concierge
+
 ```
 POST   /api/agent/incidents/:incidentId/analyze
 POST   /api/agent/incidents/analyze-active

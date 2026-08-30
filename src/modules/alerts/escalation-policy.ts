@@ -1,6 +1,6 @@
 import type { RecipientRole } from './routing.js';
 
-export const NOTIFICATION_CHANNELS = ['EMAIL', 'WHATSAPP', 'CONSOLE'] as const;
+export const NOTIFICATION_CHANNELS = ['EMAIL', 'WHATSAPP'] as const;
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 
 export type EscalationStepDefinition = {
@@ -35,7 +35,8 @@ export const DEFAULT_POLICIES: EscalationPolicyDefinition[] = [
     name: 'critical',
     minSeverity: 4,
     maxSeverity: 5,
-    description: 'Severidad critica: ventanas cortas y llegada rapida a direccion.',
+    description:
+      'Severidad critica: ventanas cortas y llegada rapida a direccion.',
     steps: [
       {
         level: 1,
@@ -56,7 +57,15 @@ export const DEFAULT_POLICIES: EscalationPolicyDefinition[] = [
       {
         level: 3,
         waitMinutes: 15,
-        roles: ['ADMIN', 'PAYMENTS_OPS', 'INTEGRATIONS_ENGINEER', 'PROVIDER_MANAGER', 'RISK_ANALYST', 'CHECKOUT_ENGINEER', 'MERCHANT_SUCCESS'],
+        roles: [
+          'ADMIN',
+          'PAYMENTS_OPS',
+          'INTEGRATIONS_ENGINEER',
+          'PROVIDER_MANAGER',
+          'RISK_ANALYST',
+          'CHECKOUT_ENGINEER',
+          'MERCHANT_SUCCESS',
+        ],
         includeSpecialists: true,
         channels: ['EMAIL', 'WHATSAPP'],
         label: 'Sin acuse en 15 min: aviso a todo el equipo',
@@ -67,14 +76,15 @@ export const DEFAULT_POLICIES: EscalationPolicyDefinition[] = [
     name: 'high',
     minSeverity: 3,
     maxSeverity: 3,
-    description: 'Severidad alta: el especialista tiene margen antes de escalar.',
+    description:
+      'Severidad alta: el especialista tiene margen antes de escalar.',
     steps: [
       {
         level: 1,
         waitMinutes: 0,
         roles: [],
         includeSpecialists: true,
-        channels: ['EMAIL'],
+        channels: ['EMAIL', 'WHATSAPP'],
         label: 'Especialista competente',
       },
       {
@@ -90,7 +100,7 @@ export const DEFAULT_POLICIES: EscalationPolicyDefinition[] = [
         waitMinutes: 25,
         roles: ['ADMIN'],
         includeSpecialists: true,
-        channels: ['EMAIL', 'WHATSAPP'],
+        channels: ['EMAIL'],
         label: 'Sin acuse en 25 min: administracion',
       },
     ],
@@ -99,7 +109,8 @@ export const DEFAULT_POLICIES: EscalationPolicyDefinition[] = [
     name: 'standard',
     minSeverity: 0,
     maxSeverity: 2,
-    description: 'Severidad baja o media: escalamiento completo con ventanas amplias.',
+    description:
+      'Severidad baja o media: escalamiento completo con ventanas amplias.',
     steps: [
       {
         level: 1,
@@ -134,7 +145,8 @@ export function selectPolicy(
   policies: EscalationPolicyDefinition[] = DEFAULT_POLICIES,
 ): EscalationPolicyDefinition {
   const match = policies.find(
-    (policy) => severity >= policy.minSeverity && severity <= policy.maxSeverity,
+    (policy) =>
+      severity >= policy.minSeverity && severity <= policy.maxSeverity,
   );
   if (match) return match;
 

@@ -2,6 +2,9 @@ param(
     [string]$BaseUrl = "http://localhost:3000/api",
     [string]$IncidentId = "",
     [string]$TargetEmail = "",
+    [string]$TargetPhone = "",
+    [ValidateSet("EMAIL", "WHATSAPP")]
+    [string]$Channel = "EMAIL",
     [switch]$ResetDemoData,
     [switch]$AllowNonLocalDatabase
 )
@@ -65,7 +68,8 @@ function Get-Json {
 function Print-EscalationSnapshot {
     param(
         [string]$Title,
-        [object]$Escalation
+        [object]$Escalation,
+        [string]$Channel
     )
 
     Write-Host ""
@@ -74,27 +78,30 @@ function Print-EscalationSnapshot {
     Write-Host "Current level: $($Escalation.currentLevel)"
     Write-Host "Next escalation at: $($Escalation.nextEscalationAt)"
 
-    $emailNotifications = @(
+    $channelNotifications = @(
         $Escalation.notifications |
-            Where-Object { $_.channel -eq "EMAIL" } |
+            Where-Object { $_.channel -eq $Channel } |
             Sort-Object level, sentAt
     )
 
-    if ($emailNotifications.Count -eq 0) {
-        Write-Host "EMAIL notifications: none"
+    if ($channelNotifications.Count -eq 0) {
+        Write-Host "$Channel notifications: none"
         return
     }
 
-    Write-Host "EMAIL notifications:"
-    $emailNotifications |
+    Write-Host "$Channel notifications:"
+    $channelNotifications |
         Select-Object level, role, status, target, error, sentAt |
         Format-Table -AutoSize
 }
 
 function Ensure-TestRecipients {
-    param([string]$Email)
+    param(
+        [string]$Email,
+        [string]$Phone
+    )
 
-    if (-not $Email) {
+    if (-not $Email -and -not $Phone) {
         return
     }
 
@@ -102,19 +109,28 @@ function Ensure-TestRecipients {
     $roles = @("CHECKOUT_ENGINEER", "PAYMENTS_OPS", "ADMIN")
 
     foreach ($role in $roles) {
+        $body = @{
+            name = "Alert Flow Test $role $stamp"
+            role = $role
+            merchants = @()
+            providers = @()
+            countries = @()
+        }
+
+        if ($Email) {
+            $body.email = $Email
+        }
+
+        if ($Phone) {
+            $body.phone = $Phone
+        }
+
         Post-Json `
             "$BaseUrl/alerts/recipients" `
-            @{
-                name = "Email Flow Test $role $stamp"
-                email = $Email
-                role = $role
-                merchants = @()
-                providers = @()
-                countries = @()
-            } | Out-Null
+            $body | Out-Null
     }
 
-    Write-Host "Destinatarios de prueba creados para $Email."
+    Write-Host "Destinatarios de prueba creados."
 }
 
 function Invoke-NextEscalationTick {
@@ -163,7 +179,7 @@ function Find-CheckoutEscalation {
 
 Write-Host ""
 Write-Host "============================================"
-Write-Host " ALERT EMAIL FLOW - 3 LEVELS"
+Write-Host " ALERT $Channel FLOW - 3 LEVELS"
 Write-Host "============================================"
 Write-Host "BaseUrl: $BaseUrl"
 Write-Host ""
@@ -186,7 +202,7 @@ if ($ResetDemoData) {
 Post-Json "$BaseUrl/alerts/seed?resetRecipients=false" @{} |
     ConvertTo-Json -Depth 20
 
-Ensure-TestRecipients $TargetEmail
+Ensure-TestRecipients $TargetEmail $TargetPhone
 
 Write-Host ""
 Write-Host "[3/6] Preview del flujo de 3 niveles..."
@@ -269,7 +285,7 @@ if (
     throw "El escalamiento real no coincide con el preview de checkout. Category=$($escalation.category); routedRoles=$($escalation.routedRoles -join ',')"
 }
 
-Print-EscalationSnapshot "Nivel 1 abierto" $escalation
+Print-EscalationSnapshot "Nivel 1 abierto" $escalation $Channel
 
 Write-Host ""
 Write-Host "[6/6] Avanzando a nivel 2 y nivel 3..."
@@ -280,12 +296,12 @@ for ($expectedLevel = 2; $expectedLevel -le 3; $expectedLevel++) {
     }
 
     $escalation = Get-Json "$BaseUrl/alerts/escalations/$IncidentId"
-    Print-EscalationSnapshot "Nivel $expectedLevel disparado" $escalation
+    Print-EscalationSnapshot "Nivel $expectedLevel disparado" $escalation $Channel
 }
 
 Write-Host ""
 Write-Host "============================================"
-Write-Host " EMAIL FLOW TEST COMPLETE"
+Write-Host " $Channel FLOW TEST COMPLETE"
 Write-Host "============================================"
 Write-Host "Incidente probado: $IncidentId"
-Write-Host "Estados posibles por email: SENT si SMTP esta configurado, SKIPPED si falta SMTP, FAILED si el proveedor rechazo el envio."
+Write-Host "Estados posibles por canal: SENT si esta configurado, SKIPPED si falta configuracion, FAILED si el proveedor rechazo el envio."

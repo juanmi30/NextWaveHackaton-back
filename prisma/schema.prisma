@@ -229,7 +229,6 @@ enum RecipientRole {
 enum NotificationChannel {
   EMAIL
   WHATSAPP
-  CONSOLE
 }
 
 enum EscalationStatus {

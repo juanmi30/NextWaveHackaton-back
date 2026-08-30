@@ -66,19 +66,19 @@ src/modules/alerts/dto/acknowledge-alert.dto.ts
 
 **11 modificados**, de los cuales solo cuatro son código ajeno:
 
-| Archivo | Cambio |
-|---|---|
-| `detection.service.ts` | `alerts.notifyIncidentCreated()` → `escalation.openForIncident()` |
-| `incidents.service.ts` | `acknowledge()` y `resolve()` cierran la cadena de escalamiento |
-| `incidents.module.ts` | importa `AlertsModule` |
-| `incidents.controller.ts` | `PATCH /incidents/:id/acknowledge` acepta `{ recipientId }` |
-| `app.module.ts` | registra `AlertsModule` |
-| `alerts.service.ts` | de broadcast a entrega por destinatario |
-| `alerts.module.ts` | registra los providers nuevos |
-| `prisma/schema.prisma` | 5 modelos y 4 enums nuevos |
-| `.gitignore` | añade `/.venv` |
-| `API.md` | sección de escalamiento |
-| `incidents.service.spec.ts` | stub del escalamiento en el constructor |
+| Archivo                     | Cambio                                                            |
+| --------------------------- | ----------------------------------------------------------------- |
+| `detection.service.ts`      | `alerts.notifyIncidentCreated()` → `escalation.openForIncident()` |
+| `incidents.service.ts`      | `acknowledge()` y `resolve()` cierran la cadena de escalamiento   |
+| `incidents.module.ts`       | importa `AlertsModule`                                            |
+| `incidents.controller.ts`   | `PATCH /incidents/:id/acknowledge` acepta `{ recipientId }`       |
+| `app.module.ts`             | registra `AlertsModule`                                           |
+| `alerts.service.ts`         | de broadcast a entrega por destinatario                           |
+| `alerts.module.ts`          | registra los providers nuevos                                     |
+| `prisma/schema.prisma`      | 5 modelos y 4 enums nuevos                                        |
+| `.gitignore`                | añade `/.venv`                                                    |
+| `API.md`                    | sección de escalamiento                                           |
+| `incidents.service.spec.ts` | stub del escalamiento en el constructor                           |
 
 ---
 
@@ -112,14 +112,14 @@ La severidad dice **cuánto corre prisa**, no **quién sabe arreglarlo**. Quien
 sabe arreglarlo lo determina la categoría del `response_code`, resuelta con la
 taxonomía de Yuno que ya vive en `src/common/payment-failure-taxonomy.ts`.
 
-| Categoría | Rol |
-|---|---|
-| `DATA_QUALITY`, `AUTHENTICATION` | `CHECKOUT_ENGINEER` |
-| `INTEGRATION` | `INTEGRATIONS_ENGINEER` |
-| `PROVIDER_CONFIGURATION` | `INTEGRATIONS_ENGINEER` + `PROVIDER_MANAGER` |
-| `FRAUD` | `RISK_ANALYST` |
-| `CARD_EXPIRY`, `ISSUER_DECLINE` | `MERCHANT_SUCCESS` |
-| `OTHER`, `UNKNOWN`, sin motivo concentrado | `PAYMENTS_OPS` |
+| Categoría                                  | Rol                                          |
+| ------------------------------------------ | -------------------------------------------- |
+| `DATA_QUALITY`, `AUTHENTICATION`           | `CHECKOUT_ENGINEER`                          |
+| `INTEGRATION`                              | `INTEGRATIONS_ENGINEER`                      |
+| `PROVIDER_CONFIGURATION`                   | `INTEGRATIONS_ENGINEER` + `PROVIDER_MANAGER` |
+| `FRAUD`                                    | `RISK_ANALYST`                               |
+| `CARD_EXPIRY`, `ISSUER_DECLINE`            | `MERCHANT_SUCCESS`                           |
+| `OTHER`, `UNKNOWN`, sin motivo concentrado | `PAYMENTS_OPS`                               |
 
 Reutilizar la taxonomía en vez de inventar reglas nuevas es lo que mantiene el
 sistema alineado con el vocabulario real de Yuno.
@@ -163,11 +163,11 @@ lectura; uno de menos cuesta dinero durante todo el incidente.
 
 ### 4.7 Con la severidad cambian los tiempos, no los niveles
 
-| Política | Severidad | Nivel 1 | Nivel 2 | Nivel 3 |
-|---|---|---|---|---|
-| `critical` | 4-5 | especialista + guardia (0 min) | administración (5 min) | todo el equipo (15 min) |
-| `high` | 3 | especialista (0 min) | guardia (10 min) | administración (25 min) |
-| `standard` | 0-2 | especialista (0 min) | guardia (45 min) | administración (120 min) |
+| Política   | Severidad | Nivel 1                        | Nivel 2                | Nivel 3                  |
+| ---------- | --------- | ------------------------------ | ---------------------- | ------------------------ |
+| `critical` | 4-5       | especialista + guardia (0 min) | administración (5 min) | todo el equipo (15 min)  |
+| `high`     | 3         | especialista (0 min)           | guardia (10 min)       | administración (25 min)  |
+| `standard` | 0-2       | especialista (0 min)           | guardia (45 min)       | administración (120 min) |
 
 Siempre se sube de menor a mayor: primero quien puede arreglarlo, luego quien
 puede conseguir que alguien lo arregle, y al final quien responde por el

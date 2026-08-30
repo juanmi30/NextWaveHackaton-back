@@ -16,7 +16,12 @@ import {
   type EscalationStepDefinition,
   type NotificationChannel,
 } from './escalation-policy.js';
-import { coversScope, routeIncident, scopeFromFingerprint, type RecipientRole } from './routing.js';
+import {
+  coversScope,
+  routeIncident,
+  scopeFromFingerprint,
+  type RecipientRole,
+} from './routing.js';
 
 @Injectable()
 export class EscalationService {
@@ -38,7 +43,9 @@ export class EscalationService {
     incident: IncidentAlert,
     openedAt = new Date(),
   ): Promise<{ escalationId: string } | null> {
-    const existing = await this.repository.findEscalationByIncident(incident.id);
+    const existing = await this.repository.findEscalationByIncident(
+      incident.id,
+    );
     if (existing) return { escalationId: existing.id };
 
     const scope = scopeFromFingerprint(incident.fingerprint);
@@ -58,7 +65,15 @@ export class EscalationService {
       createdAt: openedAt,
     });
 
-    await this.fire(escalation.id, policy.definition, 1, decision.roles, scope, incident, openedAt);
+    await this.fire(
+      escalation.id,
+      policy.definition,
+      1,
+      decision.roles,
+      scope,
+      incident,
+      openedAt,
+    );
     return { escalationId: escalation.id };
   }
 
@@ -72,7 +87,9 @@ export class EscalationService {
     const processed: Array<Record<string, unknown>> = [];
 
     for (const escalation of due) {
-      const incident = await this.repository.findIncidentForAlert(escalation.incidentId);
+      const incident = await this.repository.findIncidentForAlert(
+        escalation.incidentId,
+      );
       if (!incident) continue;
 
       // Si el incidente ya se cerro solo, la cadena muere con el.
@@ -82,12 +99,18 @@ export class EscalationService {
           nextEscalationAt: null,
           closedAt: now,
         });
-        processed.push({ escalationId: escalation.id, action: 'CLOSED_BY_RESOLUTION' });
+        processed.push({
+          escalationId: escalation.id,
+          action: 'CLOSED_BY_RESOLUTION',
+        });
         continue;
       }
       if (incident.status === 'ACKNOWLEDGED') {
         await this.acknowledge(escalation.incidentId, undefined, now);
-        processed.push({ escalationId: escalation.id, action: 'CLOSED_BY_ACK' });
+        processed.push({
+          escalationId: escalation.id,
+          action: 'CLOSED_BY_ACK',
+        });
         continue;
       }
 
@@ -119,16 +142,28 @@ export class EscalationService {
         escalation.currentLevel,
       );
 
-      processed.push({ escalationId: escalation.id, action: 'ESCALATED', ...result });
+      processed.push({
+        escalationId: escalation.id,
+        action: 'ESCALATED',
+        ...result,
+      });
     }
 
     return { checkedAt: now, due: due.length, processed };
   }
 
   /** Acusar recibo detiene la cadena. Es el unico freno junto a resolver. */
-  async acknowledge(incidentId: string, recipientId?: string, now = new Date()) {
-    const escalation = await this.repository.findEscalationByIncident(incidentId);
-    if (!escalation) throw new NotFoundException(`El incidente ${incidentId} no tiene escalamiento`);
+  async acknowledge(
+    incidentId: string,
+    recipientId?: string,
+    now = new Date(),
+  ) {
+    const escalation =
+      await this.repository.findEscalationByIncident(incidentId);
+    if (!escalation)
+      throw new NotFoundException(
+        `El incidente ${incidentId} no tiene escalamiento`,
+      );
 
     return this.repository.updateEscalation(escalation.id, {
       status: 'ACKNOWLEDGED',
@@ -139,7 +174,8 @@ export class EscalationService {
   }
 
   async close(incidentId: string, now = new Date()) {
-    const escalation = await this.repository.findEscalationByIncident(incidentId);
+    const escalation =
+      await this.repository.findEscalationByIncident(incidentId);
     if (!escalation) return null;
     return this.repository.updateEscalation(escalation.id, {
       status: 'RESOLVED',
@@ -159,7 +195,8 @@ export class EscalationService {
       const roles = rolesForStep(step, decision.roles);
       const targets = recipients.filter(
         (recipient) =>
-          roles.includes(recipient.role as RecipientRole) && coversScope(recipient, scope),
+          roles.includes(recipient.role as RecipientRole) &&
+          coversScope(recipient, scope),
       );
       return {
         level: step.level,
@@ -167,7 +204,11 @@ export class EscalationService {
         firesAfterMinutes: step.waitMinutes,
         roles,
         channels: step.channels,
-        recipients: targets.map((target) => ({ id: target.id, name: target.name, role: target.role })),
+        recipients: targets.map((target) => ({
+          id: target.id,
+          name: target.name,
+          role: target.role,
+        })),
       };
     });
 
@@ -191,7 +232,9 @@ export class EscalationService {
 
     const roles = rolesForStep(step, specialistRoles);
     const candidates = await this.repository.findRecipientsByRoles(roles);
-    const targets = candidates.filter((recipient) => coversScope(recipient, scope));
+    const targets = candidates.filter((recipient) =>
+      coversScope(recipient, scope),
+    );
 
     const dueNext = nextEscalationAt(definition, level, openedAt);
 
@@ -218,7 +261,10 @@ export class EscalationService {
           totalLevels: definition.steps.length,
           role: recipient.role as RecipientRole,
           recipientName: recipient.name,
-          routingReason: describeRouting(specialistRoles, recipient.role as RecipientRole),
+          routingReason: describeRouting(
+            specialistRoles,
+            recipient.role as RecipientRole,
+          ),
           escalatedFrom,
           nextEscalationAt: dueNext,
         });
@@ -250,7 +296,13 @@ export class EscalationService {
       ...(dueNext ? {} : { status: 'EXHAUSTED' }),
     });
 
-    return { level, roles, notified, recipients: targets.length, nextEscalationAt: dueNext };
+    return {
+      level,
+      roles,
+      notified,
+      recipients: targets.length,
+      nextEscalationAt: dueNext,
+    };
   }
 
   private async resolvePolicy(severity: number) {
@@ -271,16 +323,14 @@ function toDefinition(policy: EscalationPolicyRow): EscalationPolicyDefinition {
     maxSeverity: policy.maxSeverity,
     description: policy.description ?? '',
     steps: policy.steps
-      .map(
-        (step): EscalationStepDefinition => ({
-          level: step.level,
-          waitMinutes: step.waitMinutes,
-          label: step.label,
-          roles: step.roles as RecipientRole[],
-          includeSpecialists: step.includeSpecialists,
-          channels: step.channels as NotificationChannel[],
-        }),
-      )
+      .map((step): EscalationStepDefinition => ({
+        level: step.level,
+        waitMinutes: step.waitMinutes,
+        label: step.label,
+        roles: step.roles as RecipientRole[],
+        includeSpecialists: step.includeSpecialists,
+        channels: step.channels as NotificationChannel[],
+      }))
       .sort((a, b) => a.level - b.level),
   };
 }
@@ -289,13 +339,18 @@ function toAlert(incident: IncidentRow): IncidentAlert {
   return incident as unknown as IncidentAlert;
 }
 
-function channelTarget(recipient: RecipientRow, channel: NotificationChannel): string | null {
+function channelTarget(
+  recipient: RecipientRow,
+  channel: NotificationChannel,
+): string | null {
   if (channel === 'EMAIL') return recipient.email;
-  if (channel === 'WHATSAPP') return recipient.phone;
-  return recipient.name;
+  return recipient.phone;
 }
 
-function describeRouting(specialistRoles: RecipientRole[], role: RecipientRole): string {
+function describeRouting(
+  specialistRoles: RecipientRole[],
+  role: RecipientRole,
+): string {
   if (specialistRoles.includes(role)) {
     return 'Te llega porque la causa raiz diagnosticada cae en tu especialidad.';
   }
