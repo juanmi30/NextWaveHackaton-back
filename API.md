@@ -138,9 +138,12 @@ GET    /api/agent/incidents/:incidentId/analyze/stream
 ```
 
 Analiza un incidente existente con el OpenAI Agents SDK y devuelve un diagnostico
-JSON estructurado. Es read-only, requiere `OPENAI_API_KEY` y nunca ejecuta
+JSON estructurado. Es read-only y nunca ejecuta
 remediacion, rerouting ni cambios sobre el incidente. `OPENAI_MODEL` permite
 seleccionar un modelo; si se omite, el SDK utiliza su modelo predeterminado.
+Sin `OPENAI_API_KEY`, ante timeout (`AGENT_TIMEOUT_MS`, default 20000), error del
+proveedor o salida invalida, devuelve un diagnostico determinista construido con
+el Incident, su ultimo diagnostico/evidencia e historial almacenados.
 
 El endpoint `stream` usa SSE (`text/event-stream`) y emite solamente actividad
 publica: `run_started`, `phase_changed`, `tool_started`, `tool_completed`,
@@ -180,9 +183,19 @@ Ejemplo de inicio:
   "transactionsPerTick": 50,
   "detectionIntervalMs": 5000,
   "detectionWindowMinutes": 5,
+  "predictionEnabled": true,
+  "predictionIntervalMs": 10000,
   "randomSeed": 1337
 }
 ```
+
+Prediction es early warning (`LOW`, `WATCH`, `HIGH`); Detection es la unica que
+confirma anomalias y crea Incidents; Agent diagnostica, explica y prioriza, pero
+nunca remedia. El status agrega `prediction` con enabled, interval, runs, skips,
+estado in-flight, ultimo scan, conteos WATCH/HIGH y ultimo error, mas
+`latestPredictiveRisks` limitado a los cinco riesgos mas importantes.
+Detection publica `durationMs` por corrida y Live conserva
+`detection.lastDurationMs` para observar el costo real sin modificar thresholds.
 
 Las degradaciones son runtime-only y aceptan cualquier subconjunto de las
 dimensiones de pagos. Las dimensiones omitidas son wildcards. Si varias reglas
@@ -193,7 +206,8 @@ regla genera tambien trafico dirigido, permitiendo combinaciones nunca vistas.
 `monitor_started`, `monitor_stopped`, `transaction_batch`,
 `degradation_started`, `degradation_expired`, `degradation_removed`,
 `detection_started`, `detection_completed`, `detection_skipped`,
-`incident_detected` y `heartbeat`.
+`incident_detected`, `prediction_started`, `prediction_completed`,
+`prediction_skipped`, `predictive_risk_detected` y `heartbeat`.
 
 #### LIVE DEMO FLOW
 
@@ -210,6 +224,8 @@ curl -X POST "$BASE/live/stop"
 El monitor usa timers locales y debe ejecutarse con una sola replica durante el
 hackathon. `LIVE_MONITOR_AUTO_START=false` es el default. No realiza routing,
 remediation ni cleanup automatico de transacciones.
+Al detenerse espera los runs in-flight de Detection/Prediction y elimina las
+degradaciones runtime para que el siguiente demo comience limpio.
 
 `POST /api/demo/seed?reset=true` es destructivo y exclusivo de demo: limpia
 incidentes (incluyendo diagnoses/evidence), DetectionRun historicos,
@@ -289,6 +305,13 @@ que conecta ambas; la mera ausencia de conflicto ya no fusiona incidentes.
 **`anchorFingerprint` estable + `fingerprint` mutable.** El diagnostico se afina
 sobre el mismo incidente en vez de duplicarlo, y el historial de versiones deja
 mostrar en la demo como el sistema paso de una hipotesis gruesa a una precisa.
+`anchorFingerprint` es inmutable durante toda la vida de la historia operacional,
+tanto en refinamientos normales como al aislar una dimension nunca vista.
+
+**Responsabilidades operacionales.** Prediction anticipa riesgo; Detection
+confirma la anomalia; Incident conserva la historia operacional; Agent explica y
+prioriza; Alerts notifica y escala a humanos en modo best-effort. Ninguna capa
+ejecuta remediation, retries o rerouting automatico.
 
 **`DetectionRun` registra tambien las corridas sin hallazgos.** Es la unica forma
 de demostrar la ausencia de falsos positivos: sin ella solo se ve que no paso nada.

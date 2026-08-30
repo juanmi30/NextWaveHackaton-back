@@ -264,17 +264,17 @@ export class DemoService {
       },
 
       {
-        approvalRate: 0.88,
-        timeoutRate: 0.03,
-        errorRate: 0.03,
-        baseLatencyMs: 800,
+        approvalRate: 0.89,
+        timeoutRate: 0.06,
+        errorRate: 0.04,
+        baseLatencyMs: 1200,
       },
 
       {
-        approvalRate: 0.82,
-        timeoutRate: 0.07,
-        errorRate: 0.06,
-        baseLatencyMs: 1400,
+        approvalRate: 0.84,
+        timeoutRate: 0.12,
+        errorRate: 0.04,
+        baseLatencyMs: 3000,
       },
     ];
 
@@ -412,7 +412,7 @@ export class DemoService {
     await this.baselines.clear();
   }
 
-  private async insertInChunks(rows: CreateTransactionDto[], chunkSize = 500) {
+  private async insertInChunks(rows: CreateTransactionDto[], chunkSize = 2_000) {
     let inserted = 0;
     for (let i = 0; i < rows.length; i += chunkSize) {
       const result = await this.transactions.createBulk({ transactions: rows.slice(i, i + chunkSize) });
