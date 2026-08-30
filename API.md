@@ -134,6 +134,7 @@ POST   /api/fx/rates/seed
 ```
 POST   /api/agent/incidents/:incidentId/analyze
 POST   /api/agent/incidents/analyze-active
+GET    /api/agent/incidents/:incidentId/diagnosis
 GET    /api/agent/incidents/:incidentId/analyze/stream
 ```
 
@@ -185,6 +186,15 @@ Ejemplo aditivo para frontend:
   }
 }
 ```
+
+Live Monitoring programa automaticamente el diagnostico inicial cuando Detection
+crea un incidente confirmado. Prediction no crea incidentes ni dispara diagnosticos.
+El analisis es asincrono y no bloquea el siguiente ciclo de Detection. El `GET`
+expone `NOT_STARTED`, `PENDING`, `RUNNING`, `COMPLETED` o `FAILED`, junto con
+`diagnosis` cuando termina. El `POST` manual se conserva para reintentos y depuracion.
+Este estado es local al proceso y vuelve a `NOT_STARTED` tras un reinicio; no agrega
+campos ni migraciones Prisma. El SSE existente conserva su ejecucion bajo demanda y
+no intenta reproducir eventos de un autoanalisis ya iniciado.
 
 El endpoint `stream` usa SSE (`text/event-stream`) y emite solamente actividad
 publica: `run_started`, `phase_changed`, `tool_started`, `tool_completed`,
