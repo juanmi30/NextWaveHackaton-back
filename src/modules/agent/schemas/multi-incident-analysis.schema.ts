@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AgentDiagnosisSchema } from './agent-diagnosis.schema.js';
+import { EnrichedAgentDiagnosisSchema } from './agent-diagnosis.schema.js';
 
 export const MultiIncidentAnalysisSchema = z.object({
   generatedAt: z.string(),
@@ -18,7 +18,7 @@ export const MultiIncidentAnalysisSchema = z.object({
       severity: z.number().int().min(0),
       lossPerMinuteCents: z.number().int().min(0),
       analysisStatus: z.enum(['ANALYZED', 'FAILED']),
-      diagnosis: AgentDiagnosisSchema.nullable(),
+      diagnosis: EnrichedAgentDiagnosisSchema.nullable(),
       error: z.string().nullable(),
     }),
   ),

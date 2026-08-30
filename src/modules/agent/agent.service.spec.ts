@@ -4,6 +4,7 @@ import type { ConfigService } from '@nestjs/config';
 import type { AnalyticsService } from '../analytics/analytics.service.js';
 import type { IncidentsService } from '../incidents/incidents.service.js';
 import type { AgentDiagnosis } from './schemas/agent-diagnosis.schema.js';
+import type { EnrichedAgentDiagnosis } from './schemas/agent-diagnosis.schema.js';
 
 import { AgentService } from './agent.service.js';
 
@@ -37,6 +38,7 @@ const storedIncident = {
   actualApprovals: 178,
   lostApprovals: 212,
   lossPerMinuteCents: 346_210,
+  averageTicketCents: 10_000,
   startedAt: new Date('2026-08-29T12:00:00.000Z'),
   detectedAt: new Date('2026-08-29T12:05:00.000Z'),
   lastSeenAt: new Date('2026-08-29T12:20:00.000Z'),
@@ -49,6 +51,7 @@ const storedIncident = {
       dimensions: { merchant: 'Mercado Uno', provider: 'Adyen', method: 'CARD', country: 'BR' },
       baselineRate: 0.909,
       observedRate: 0.4149,
+      baselineAttempts: 1_000,
       observedAttempts: 429,
       confidence: 0.8,
       evidence: [{ dimension: 'provider', dimensionValue: 'Adyen', baselineRate: 0.909,
@@ -99,7 +102,7 @@ describe('AgentService streaming analysis', () => {
 
     const events = await collectEvents(createService(runMock).service);
     const diagnosisEvent = events
-      .map((event) => event.data as { type?: string; diagnosis?: AgentDiagnosis })
+      .map((event) => event.data as { type?: string; diagnosis?: EnrichedAgentDiagnosis })
       .find((event) => event.type === 'diagnosis');
 
     expect(diagnosisEvent?.diagnosis?.impact).toEqual({
@@ -154,6 +157,10 @@ describe('AgentService streaming analysis', () => {
 
     expect(result.incidentId).toBe('incident-1');
     expect(result.impact.lossPerMinuteCents).toBe(346_210);
+    expect(result).toHaveProperty('confidenceAnalysis');
+    expect(result).toHaveProperty('ruledOutHypotheses');
+    expect(result).toHaveProperty('counterfactualImpact');
+    expect(result).toHaveProperty('diagnosisTrace');
     expect(result).not.toHaveProperty('type');
   });
 
@@ -168,6 +175,35 @@ describe('AgentService streaming analysis', () => {
       recurrence: { isRecurrence: true, previousOccurrenceCount: 1 },
       recommendation: { requiresHumanApproval: true },
     });
+    expect(result).toHaveProperty('confidenceAnalysis');
+    expect(result).toHaveProperty('ruledOutHypotheses');
+    expect(result).toHaveProperty('counterfactualImpact');
+    expect(result).toHaveProperty('diagnosisTrace');
+  });
+
+  it('calculates the same backend enrichment for OpenAI success and fallback', async () => {
+    const sufficientModelDiagnosis: AgentDiagnosis = {
+      ...modelDiagnosis,
+      evidenceStatus: 'SUFFICIENT',
+      rootCause: {
+        statement: 'Stored evidence isolates provider=Adyen.',
+        dimensions: {
+          merchant: null, provider: 'Adyen', method: null, country: null,
+          issuingBank: null, failureReason: null,
+        },
+        confidence: 0.8,
+      },
+    };
+    const openAi = await createService(
+      vi.fn().mockResolvedValue({ finalOutput: sufficientModelDiagnosis }),
+    ).service.analyzeIncident('incident-1');
+    const fallback = await createService(vi.fn(), { key: '' })
+      .service.analyzeIncident('incident-1');
+
+    expect(openAi.confidenceAnalysis).toEqual(fallback.confidenceAnalysis);
+    expect(openAi.ruledOutHypotheses).toEqual(fallback.ruledOutHypotheses);
+    expect(openAi.counterfactualImpact).toEqual(fallback.counterfactualImpact);
+    expect(openAi.diagnosisTrace).toEqual(fallback.diagnosisTrace);
   });
 
   it('falls back when structured output is invalid', async () => {
