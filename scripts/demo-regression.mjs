@@ -229,6 +229,28 @@ async function scenarioEconomicPriority() {
   console.log('[PASS] Economic prioritization');
 }
 
+async function scenarioStableIdentity() {
+  await seed();
+  await post('/demo/inject-incident', {
+    merchant: 'Mercado Uno', provider: 'Adyen', method: 'CARD', country: 'BR',
+    issuingBank: 'Bradesco', approvalRate: 0.15, transactionsPerMinute: 40,
+  });
+  const broadRun = await detect({ confirmationRuns: 1, maxDepth: 2 });
+  assert(broadRun.incidents.length >= 1, 'Broad run must create an incident', broadRun);
+  const broad = broadRun.incidents[0];
+  const refinedRun = await detect({ confirmationRuns: 1, maxDepth: 4 });
+  const refined = refinedRun.incidents.find((incident) => incident.incidentId === broad.incidentId);
+  assert(
+    refined &&
+      refined.anchorFingerprint === broad.anchorFingerprint &&
+      refined.version > broad.version &&
+      refined.fingerprint !== broad.fingerprint,
+    'Incident identity must survive diagnosis refinement',
+    { broad, refinedRun },
+  );
+  console.log('[PASS] Incident identity survives diagnosis refinement');
+}
+
 async function main() {
   console.log(`Running backend demo regression against ${apiUrl}`);
   await scenarioNormal();
@@ -241,6 +263,7 @@ async function main() {
   await scenarioPersistentConfirmation();
   await scenarioRecoveryHysteresis();
   await scenarioEconomicPriority();
+  await scenarioStableIdentity();
 }
 
 main().catch((error) => {

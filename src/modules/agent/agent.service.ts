@@ -1,8 +1,6 @@
 import {
-  BadGatewayException,
   Injectable,
   InternalServerErrorException,
-  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { run } from '@openai/agents';
@@ -27,7 +25,7 @@ import {
   enforceCanonicalIncidentImpact,
   getCanonicalIncidentImpact,
 } from './canonical-incident-impact.js';
-import type { AgentDiagnosis } from './schemas/agent-diagnosis.schema.js';
+import type { EnrichedAgentDiagnosis } from './schemas/agent-diagnosis.schema.js';
 import type { AgentStreamEvent } from './agent-stream.types.js';
 import {
   advanceAgentPhase,
@@ -35,6 +33,8 @@ import {
   type AgentStreamMappingState,
 } from './agent-stream.mapper.js';
 import { calculateIncidentPriority } from '../../common/detection-metrics.js';
+import { buildDeterministicDiagnosis } from './deterministic-diagnosis.js';
+import { enrichDiagnosis } from './diagnosis-enrichment.js';
 
 type LoadedIncident = Awaited<ReturnType<IncidentsService['findOne']>>;
 type ActiveIncident = Awaited<ReturnType<IncidentsService['findAll']>>[number];
@@ -51,20 +51,21 @@ export class AgentService {
   ) {}
 
   async analyzeIncident(incidentId: string) {
-    const prepared = await this.prepareIncidentAnalysis(incidentId);
-
-    let finalOutput: unknown;
+    const incident = await this.incidents.findOne(incidentId);
+    if (!this.hasOpenAiKey()) return this.fallbackDiagnosis(incident);
+    const prepared = this.prepareIncidentAnalysis(incidentId, incident);
+    const abortController = new AbortController();
+    const timeout = setTimeout(() => abortController.abort(), this.agentTimeoutMs());
     try {
-      const result = await this.runAgent(prepared.agent, prepared.prompt);
-      finalOutput = result.finalOutput;
-    } catch (error) {
-      throw new BadGatewayException({
-        message: 'OpenAI failed to analyze the incident',
-        providerError: error instanceof Error ? error.name : 'UnknownError',
+      const result = await this.runAgent(prepared.agent, prepared.prompt, {
+        signal: abortController.signal,
       });
+      return this.normalizeDiagnosis(result.finalOutput, incidentId, incident);
+    } catch {
+      return this.fallbackDiagnosis(incident);
+    } finally {
+      clearTimeout(timeout);
     }
-
-    return this.normalizeDiagnosis(finalOutput, incidentId, prepared.incident);
   }
 
   async analyzeActiveIncidents(limit = 10): Promise<MultiIncidentAnalysis> {
@@ -145,8 +146,7 @@ export class AgentService {
     });
   }
 
-  private async prepareIncidentAnalysis(incidentId: string) {
-    const incident = await this.incidents.findOne(incidentId);
+  private prepareIncidentAnalysis(incidentId: string, incident: LoadedIncident) {
     const analysisAnchor = incident.lastSeenAt ?? incident.detectedAt;
     const latestDiagnosis = incident.diagnoses.at(-1);
     const canonicalContext = {
@@ -158,12 +158,6 @@ export class AgentService {
         latestDiagnosisObservedAttempts: latestDiagnosis?.observedAttempts ?? null,
       },
     };
-
-    if (!this.config.get<string>('OPENAI_API_KEY')) {
-      throw new ServiceUnavailableException(
-        'OPENAI_API_KEY is required to analyze an incident with the Payments Diagnostic Concierge',
-      );
-    }
 
     const tools = [
       createGetIncidentTool(this.incidents),
@@ -190,14 +184,24 @@ export class AgentService {
     signal: AbortSignal,
     subscriber: Subscriber<MessageEvent>,
   ) {
+    let incident: LoadedIncident | undefined;
+    let runStarted = false;
     try {
-      const prepared = await this.prepareIncidentAnalysis(incidentId);
+      incident = await this.incidents.findOne(incidentId);
       if (signal.aborted) return;
 
       this.emit(subscriber, { type: 'run_started', incidentId, timestamp: now() });
       this.emit(subscriber, { type: 'phase_changed', phase: 'OBSERVE', timestamp: now() });
+      runStarted = true;
+      if (!this.hasOpenAiKey()) {
+        await this.emitFallback(subscriber, incidentId, incident);
+        return;
+      }
 
-      const stream = await this.runAgent(prepared.agent, prepared.prompt, { stream: true, signal });
+      const prepared = this.prepareIncidentAnalysis(incidentId, incident);
+      const runSignal = AbortSignal.any([signal, AbortSignal.timeout(this.agentTimeoutMs())]);
+
+      const stream = await this.runAgent(prepared.agent, prepared.prompt, { stream: true, signal: runSignal });
       const mappingState: AgentStreamMappingState = {
         phase: 'OBSERVE',
         toolNamesByCallId: new Map(),
@@ -225,20 +229,56 @@ export class AgentService {
       subscriber.complete();
     } catch {
       if (signal.aborted || subscriber.closed) return;
-      this.emit(subscriber, {
-        type: 'error',
-        message: 'Unable to complete incident analysis',
-        timestamp: now(),
-      });
-      subscriber.complete();
+      try {
+        if (!incident) incident = await this.incidents.findOne(incidentId);
+        if (!runStarted) {
+          this.emit(subscriber, { type: 'run_started', incidentId, timestamp: now() });
+          this.emit(subscriber, { type: 'phase_changed', phase: 'OBSERVE', timestamp: now() });
+        }
+        await this.emitFallback(subscriber, incidentId, incident);
+      } catch {
+        this.emit(subscriber, {
+          type: 'error',
+          message: 'Unable to complete incident analysis',
+          timestamp: now(),
+        });
+        subscriber.complete();
+      }
     }
+  }
+
+  private async fallbackDiagnosis(incident: LoadedIncident) {
+    const history = await this.incidents.history(incident.id);
+    return enrichDiagnosis(buildDeterministicDiagnosis(incident, history), incident);
+  }
+
+  private async emitFallback(
+    subscriber: Subscriber<MessageEvent>,
+    incidentId: string,
+    incident: LoadedIncident,
+  ) {
+    const diagnosis = await this.fallbackDiagnosis(incident);
+    this.emit(subscriber, { type: 'phase_changed', phase: 'DIAGNOSE', timestamp: now() });
+    this.emit(subscriber, { type: 'diagnosis', diagnosis, timestamp: now() });
+    this.emit(subscriber, { type: 'phase_changed', phase: 'REPORT', timestamp: now() });
+    this.emit(subscriber, { type: 'run_completed', incidentId, timestamp: now() });
+    subscriber.complete();
+  }
+
+  private hasOpenAiKey() {
+    return Boolean(this.config.get<string>('OPENAI_API_KEY')?.trim());
+  }
+
+  private agentTimeoutMs() {
+    const configured = Number(this.config.get<string>('AGENT_TIMEOUT_MS'));
+    return Number.isFinite(configured) && configured > 0 ? configured : 20_000;
   }
 
   private normalizeDiagnosis(
     finalOutput: unknown,
     incidentId: string,
     incident: LoadedIncident,
-  ): AgentDiagnosis {
+  ): EnrichedAgentDiagnosis {
     const parsed = AgentDiagnosisSchema.safeParse(finalOutput);
     if (!parsed.success) {
       throw new InternalServerErrorException('OpenAI returned an invalid structured diagnosis');
@@ -247,7 +287,7 @@ export class AgentService {
       throw new InternalServerErrorException('OpenAI returned a diagnosis for a different incident');
     }
 
-    return enforceCanonicalIncidentImpact(parsed.data, incident);
+    return enrichDiagnosis(enforceCanonicalIncidentImpact(parsed.data, incident), incident);
   }
 
   private emit(subscriber: Subscriber<MessageEvent>, event: AgentStreamEvent) {
@@ -353,7 +393,7 @@ function determineCorrelation(incidents: MultiIncidentAnalysis['incidents']) {
       };
 }
 
-function discriminatingKey(diagnosis: AgentDiagnosis) {
+function discriminatingKey(diagnosis: EnrichedAgentDiagnosis) {
   if (!diagnosis.rootCause) return null;
   const dimensions = Object.entries(diagnosis.rootCause.dimensions).filter(
     (entry): entry is [string, string] => entry[1] !== null,

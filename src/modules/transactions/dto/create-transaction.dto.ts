@@ -69,6 +69,23 @@ export class CreateTransactionDto {
   @IsOptional()
   @IsDateString()
   occurredAt?: string;
+
+  // --- Semantica Yuno (v2). Todo opcional: los generadores antiguos siguen
+  // --- funcionando sin enviar nada de esto.
+  @IsOptional() @IsString() paymentId?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  attemptNumber?: number;
+
+  @IsOptional() @IsString() transactionType?: string;
+  @IsOptional() @IsString() yunoStatus?: string;
+  /** Texto libre a proposito: Yuno agrega response codes nuevos. */
+  @IsOptional() @IsString() responseCode?: string;
+  @IsOptional() @IsString() merchantAdviceCode?: string;
+  @IsOptional() @IsString() providerResponseCode?: string;
 }
 
 export class BulkCreateTransactionsDto {

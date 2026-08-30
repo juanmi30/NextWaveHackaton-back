@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ConfigService } from '@nestjs/config';
 import type { AnalyticsService } from '../analytics/analytics.service.js';
 import type { IncidentsService } from '../incidents/incidents.service.js';
-import type { AgentDiagnosis } from './schemas/agent-diagnosis.schema.js';
+import type { EnrichedAgentDiagnosis } from './schemas/agent-diagnosis.schema.js';
 import { AgentService } from './agent.service.js';
 
 function activeIncident(
@@ -23,7 +23,7 @@ function activeIncident(
   };
 }
 
-function diagnosis(id: string, country: string): AgentDiagnosis {
+function diagnosis(id: string, country: string): EnrichedAgentDiagnosis {
   const dimensions = {
     merchant: null,
     provider: 'Adyen',
@@ -47,12 +47,30 @@ function diagnosis(id: string, country: string): AgentDiagnosis {
     recurrence: { isRecurrence: false, previousOccurrenceCount: 0 },
     recommendation: { action: 'Investigate manually', requiresHumanApproval: true },
     summaries: { operations: `${id} operations`, executive: `${id} executive` },
+    confidenceAnalysis: { score: 0.9, level: 'HIGH', factors: [], limitations: [] },
+    ruledOutHypotheses: [],
+    counterfactualImpact: {
+      estimatedRecoverableApprovalsPerMinute: 1,
+      estimatedRecoverableApprovalsPerHour: 60,
+      estimatedRecoverableRevenuePerHourCents: 60,
+    },
+    diagnosisTrace: [{
+      order: 1,
+      type: 'ROOT_CAUSE',
+      scope: dimensions,
+      statement: `Stored evidence isolates Adyen ${country}.`,
+      baselineValue: null,
+      observedValue: null,
+      attempts: null,
+    }],
   };
 }
 
 function setup(active: ReturnType<typeof activeIncident>[]) {
   const incidents = {
     findAll: vi.fn().mockResolvedValue(active),
+    findOne: vi.fn(),
+    history: vi.fn().mockResolvedValue({ isRecurrence: false, previousOccurrences: [] }),
     acknowledge: vi.fn(),
     resolve: vi.fn(),
   };
@@ -156,5 +174,52 @@ describe('AgentService multi-incident analysis', () => {
 
     expect(incidents.acknowledge).not.toHaveBeenCalled();
     expect(incidents.resolve).not.toHaveBeenCalled();
+  });
+
+  it('analyzes every active incident with deterministic fallback when the key is absent', async () => {
+    const active = [activeIncident('A', 400_000, 'BR'), activeIncident('B', 100_000, 'MX')];
+    const { service, incidents } = setup(active);
+    incidents.findOne.mockImplementation(async (id: string) => ({
+      ...active.find((row) => row.id === id),
+      expectedApprovals: 90,
+      actualApprovals: 40,
+      averageTicketCents: 10_000,
+      startedAt: new Date('2026-08-29T11:55:00.000Z'),
+      lastSeenAt: new Date('2026-08-29T12:05:00.000Z'),
+      summaryOps: `${id} stored operations`,
+      summaryExec: `${id} stored executive`,
+      recommendation: 'Review manually',
+      confidenceStatement: null,
+      diagnoses: [{
+        dimensions: { provider: 'Adyen', country: id === 'A' ? 'BR' : 'MX' },
+        baselineRate: 0.9, observedRate: 0.4, baselineAttempts: 500,
+        observedAttempts: 100, confidence: 0.7,
+        evidence: [{ dimension: 'provider', dimensionValue: 'Adyen', baselineRate: 0.9,
+          observedRate: 0.4, attempts: 100, confidence: 0.7, isRootCause: true }],
+      }],
+    }));
+
+    const result = await service.analyzeActiveIncidents();
+
+    expect(result.portfolio).toMatchObject({ successfullyAnalyzed: 2, failedAnalyses: 0,
+      totalLossPerMinuteCents: 500_000 });
+    expect(result.incidents.every((row) => row.analysisStatus === 'ANALYZED')).toBe(true);
+    expect(incidents.acknowledge).not.toHaveBeenCalled();
+    expect(incidents.resolve).not.toHaveBeenCalled();
+  });
+
+  it('counts a refined anomaly once using its single stable Incident identity', async () => {
+    const refined = activeIncident('X', 250_000, 'BR');
+    refined.diagnoses = [{ confidence: 0.9 }, { confidence: 0.95 }];
+    const { service } = setup([refined]);
+    vi.spyOn(service, 'analyzeIncident').mockResolvedValue(diagnosis('X', 'BR'));
+
+    const result = await service.analyzeActiveIncidents();
+
+    expect(result.portfolio).toMatchObject({
+      activeIncidentCount: 1,
+      totalLossPerMinuteCents: 250_000,
+    });
+    expect(result.incidents).toHaveLength(1);
   });
 });

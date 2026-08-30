@@ -13,6 +13,7 @@ import { BaselinesService } from '../baselines/baselines.service.js';
 import { DemoService } from '../demo/demo.service.js';
 import { DetectionService } from '../detection/detection.service.js';
 import { TransactionsRepository } from '../transactions/transactions.repository.js';
+import { PredictionService, type PredictionScanResult } from '../prediction/prediction.service.js';
 import type { CreateLiveDegradationDto } from './dto/create-live-degradation.dto.js';
 import type { StartLiveMonitorDto } from './dto/start-live-monitor.dto.js';
 import { LiveEventService } from './live-event.service.js';
@@ -25,6 +26,8 @@ const DEFAULT_CONFIG: LiveConfig = {
   detectionIntervalMs: 5_000,
   detectionWindowMinutes: 5,
   randomSeed: 1_337,
+  predictionEnabled: true,
+  predictionIntervalMs: 10_000,
 };
 
 @Injectable()
@@ -35,11 +38,15 @@ export class LiveMonitoringService implements OnModuleInit, OnModuleDestroy {
   private startedAt: Date | null = null;
   private generatorTimer?: ReturnType<typeof setInterval>;
   private detectionTimer?: ReturnType<typeof setInterval>;
+  private predictionTimer?: ReturnType<typeof setInterval>;
   private heartbeatTimer?: ReturnType<typeof setInterval>;
   private generatorRunning = false;
   private detectionRunning = false;
   private detectionSettled: Promise<void> | null = null;
   private resolveDetectionSettled: (() => void) | null = null;
+  private predictionRunning = false;
+  private predictionSettled: Promise<void> | null = null;
+  private resolvePredictionSettled: (() => void) | null = null;
   private generatedTransactions = 0;
   private generatorTicks = 0;
   private detectionRuns = 0;
@@ -47,9 +54,18 @@ export class LiveMonitoringService implements OnModuleInit, OnModuleDestroy {
   private lastRunAt: string | null = null;
   private lastOutcome: string | null = null;
   private lastRunId: string | null = null;
+  private lastDetectionDurationMs: number | null = null;
   private latestIncidentCount = 0;
   private lastGeneratorError: string | null = null;
   private lastDetectionError: string | null = null;
+  private predictionRuns = 0;
+  private skippedPredictionRuns = 0;
+  private lastPredictionRunAt: string | null = null;
+  private lastEvaluatedSegments = 0;
+  private lastWatchRiskCount = 0;
+  private lastElevatedRiskCount = 0;
+  private lastPredictionError: string | null = null;
+  private latestPredictiveRisks: ReturnType<typeof publicRisk>[] = [];
   private readonly degradations = new Map<string, LiveDegradation>();
 
   constructor(
@@ -58,6 +74,7 @@ export class LiveMonitoringService implements OnModuleInit, OnModuleDestroy {
     private readonly baselines: BaselinesService,
     private readonly demo: DemoService,
     private readonly detection: DetectionService,
+    private readonly prediction: PredictionService,
     private readonly generator: LiveTransactionGeneratorService,
     private readonly events: LiveEventService,
   ) {}
@@ -107,13 +124,28 @@ export class LiveMonitoringService implements OnModuleInit, OnModuleDestroy {
     this.lastRunAt = null;
     this.lastOutcome = null;
     this.lastRunId = null;
+    this.lastDetectionDurationMs = null;
     this.latestIncidentCount = 0;
     this.state = 'RUNNING';
     this.startedAt = new Date();
     this.lastGeneratorError = null;
     this.lastDetectionError = null;
+    this.predictionRuns = 0;
+    this.skippedPredictionRuns = 0;
+    this.lastPredictionRunAt = null;
+    this.lastEvaluatedSegments = 0;
+    this.lastWatchRiskCount = 0;
+    this.lastElevatedRiskCount = 0;
+    this.lastPredictionError = null;
+    this.latestPredictiveRisks = [];
     this.generatorTimer = setInterval(() => void this.transactionTick(), this.config.tickIntervalMs);
     this.detectionTimer = setInterval(() => void this.detectionTick(), this.config.detectionIntervalMs);
+    if (this.config.predictionEnabled) {
+      this.predictionTimer = setInterval(
+        () => void this.predictionTick(),
+        this.config.predictionIntervalMs,
+      );
+    }
     this.heartbeatTimer = setInterval(
       () => this.events.emit({ type: 'heartbeat', state: this.state }),
       15_000,
@@ -127,6 +159,11 @@ export class LiveMonitoringService implements OnModuleInit, OnModuleDestroy {
     this.clearTimers();
     this.state = 'STOPPED';
     if (this.detectionSettled) await this.waitForDetectionToSettle(this.detectionSettled);
+    if (this.predictionSettled) await this.waitForRunToSettle(
+      this.predictionSettled,
+      'Prediction',
+    );
+    this.degradations.clear();
     if (wasRunning) this.events.emit({ type: 'monitor_stopped' });
     return this.status();
   }
@@ -156,9 +193,23 @@ export class LiveMonitoringService implements OnModuleInit, OnModuleDestroy {
         lastRunAt: this.lastRunAt,
         lastOutcome: this.lastOutcome,
         lastRunId: this.lastRunId,
+        lastDurationMs: this.lastDetectionDurationMs,
         latestIncidentCount: this.latestIncidentCount,
         lastError: this.lastDetectionError,
       },
+      prediction: {
+        enabled: this.config.predictionEnabled,
+        intervalMs: this.config.predictionIntervalMs,
+        runs: this.predictionRuns,
+        skippedRuns: this.skippedPredictionRuns,
+        running: this.predictionRunning,
+        lastRunAt: this.lastPredictionRunAt,
+        lastEvaluatedSegments: this.lastEvaluatedSegments,
+        lastWatchRiskCount: this.lastWatchRiskCount,
+        lastElevatedRiskCount: this.lastElevatedRiskCount,
+        lastError: this.lastPredictionError,
+      },
+      latestPredictiveRisks: this.latestPredictiveRisks,
       activeDegradationCount: this.degradations.size,
       activeDegradations: this.listDegradations(),
     };
@@ -240,6 +291,7 @@ export class LiveMonitoringService implements OnModuleInit, OnModuleDestroy {
       this.lastRunAt = new Date().toISOString();
       this.lastOutcome = result.outcome;
       this.lastRunId = result.runId;
+      this.lastDetectionDurationMs = result.durationMs;
       this.latestIncidentCount = result.incidents.length;
       this.lastDetectionError = null;
       this.events.emit({
@@ -267,14 +319,74 @@ export class LiveMonitoringService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private async predictionTick() {
+    if (this.state !== 'RUNNING' || !this.config.predictionEnabled) return;
+    if (this.predictionRunning) {
+      this.skippedPredictionRuns += 1;
+      this.events.emit({ type: 'prediction_skipped', reason: 'previous_run_still_active' });
+      return;
+    }
+    this.predictionRunning = true;
+    this.predictionSettled = new Promise<void>((resolve) => {
+      this.resolvePredictionSettled = resolve;
+    });
+    this.events.emit({ type: 'prediction_started' });
+    try {
+      const result = await this.prediction.scan();
+      this.recordPredictionResult(result);
+    } catch (error) {
+      this.lastPredictionError = safeError(error);
+      this.logger.error(`Automatic prediction failed: ${this.lastPredictionError}`);
+    } finally {
+      this.predictionRunning = false;
+      this.resolvePredictionSettled?.();
+      this.resolvePredictionSettled = null;
+      this.predictionSettled = null;
+    }
+  }
+
+  private recordPredictionResult(result: PredictionScanResult) {
+    this.predictionRuns += 1;
+    this.lastPredictionRunAt = result.scannedAt;
+    this.lastEvaluatedSegments = result.evaluatedSegments;
+    this.lastWatchRiskCount = result.watchRisks.length;
+    this.lastElevatedRiskCount = result.elevatedRisks.length;
+    this.lastPredictionError = null;
+    const risks = [...result.elevatedRisks, ...result.watchRisks]
+      .map(publicRisk)
+      .sort((left, right) =>
+        riskRank(right.riskLevel) - riskRank(left.riskLevel) ||
+        right.failureProbability - left.failureProbability,
+      )
+      .slice(0, 5);
+    this.latestPredictiveRisks = risks;
+    this.events.emit({
+      type: 'prediction_completed',
+      evaluatedSegments: result.evaluatedSegments,
+      predictions: result.predictions,
+      insufficientEvidence: result.insufficientEvidence,
+      watchRiskCount: result.watchRisks.length,
+      elevatedRiskCount: result.elevatedRisks.length,
+    });
+    for (const risk of risks) this.events.emit({ type: 'predictive_risk_detected', ...risk });
+  }
+
   private async waitForDetectionToSettle(inFlight: Promise<void>, timeoutMs = 30_000) {
+    return this.waitForRunToSettle(inFlight, 'Detection', timeoutMs);
+  }
+
+  private async waitForRunToSettle(
+    inFlight: Promise<void>,
+    runName: 'Detection' | 'Prediction',
+    timeoutMs = 30_000,
+  ) {
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([
         inFlight,
         new Promise<never>((_resolve, reject) => {
           timeout = setTimeout(
-            () => reject(new RequestTimeoutException('Timed out waiting for active Detection run')),
+            () => reject(new RequestTimeoutException(`Timed out waiting for active ${runName} run`)),
             timeoutMs,
           );
         }),
@@ -296,9 +408,11 @@ export class LiveMonitoringService implements OnModuleInit, OnModuleDestroy {
   private clearTimers() {
     if (this.generatorTimer) clearInterval(this.generatorTimer);
     if (this.detectionTimer) clearInterval(this.detectionTimer);
+    if (this.predictionTimer) clearInterval(this.predictionTimer);
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     this.generatorTimer = undefined;
     this.detectionTimer = undefined;
+    this.predictionTimer = undefined;
     this.heartbeatTimer = undefined;
   }
 }
@@ -311,8 +425,26 @@ function definedConfig(dto: StartLiveMonitorDto): Partial<LiveConfig> {
       detectionIntervalMs: dto.detectionIntervalMs,
       detectionWindowMinutes: dto.detectionWindowMinutes,
       randomSeed: dto.randomSeed,
-    }).filter((entry): entry is [keyof LiveConfig, number] => entry[1] !== undefined),
+      predictionEnabled: dto.predictionEnabled,
+      predictionIntervalMs: dto.predictionIntervalMs,
+    }).filter((entry) => entry[1] !== undefined),
   );
+}
+
+function publicRisk(risk: PredictionScanResult['watchRisks'][number]) {
+  return {
+    segment: risk.segment,
+    riskLevel: risk.prediction.riskLevel,
+    failureProbability: risk.prediction.failureProbability,
+    failureProbabilityPercent: risk.prediction.failureProbabilityPercent,
+    predictionHorizonMinutes: risk.prediction.predictionHorizonMinutes,
+    signals: risk.prediction.signals,
+    evidence: risk.evidence,
+  };
+}
+
+function riskRank(level: string) {
+  return level === 'HIGH' ? 2 : level === 'WATCH' ? 1 : 0;
 }
 
 function safeError(error: unknown) {

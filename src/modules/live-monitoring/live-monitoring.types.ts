@@ -8,6 +8,8 @@ export type LiveConfig = {
   detectionIntervalMs: number;
   detectionWindowMinutes: number;
   randomSeed: number;
+  predictionEnabled: boolean;
+  predictionIntervalMs: number;
 };
 
 export type LiveDegradation = {

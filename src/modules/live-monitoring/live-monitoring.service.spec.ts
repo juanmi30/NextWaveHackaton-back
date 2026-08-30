@@ -4,12 +4,32 @@ import type { ConfigService } from '@nestjs/config';
 import type { BaselinesService } from '../baselines/baselines.service.js';
 import type { DemoService } from '../demo/demo.service.js';
 import type { DetectionService } from '../detection/detection.service.js';
+import type { PredictionService } from '../prediction/prediction.service.js';
 import type { TransactionsRepository } from '../transactions/transactions.repository.js';
 import { LiveEventService } from './live-event.service.js';
 import { LiveMonitoringService } from './live-monitoring.service.js';
 import type { LiveTransactionGeneratorService } from './live-transaction-generator.service.js';
 
-function setup(options: { detection?: ReturnType<typeof vi.fn>; ready?: boolean } = {}) {
+const scanResult = {
+  scannedAt: '2026-08-29T12:00:10.000Z', evaluatedSegments: 2, predictions: 2,
+  insufficientEvidence: 0,
+  watchRisks: [{
+    segment: { provider: 'Adyen' }, evidence: { sufficientEvidence: true }, features: {},
+    failureContext: {}, prediction: { riskLevel: 'WATCH', failureProbability: 0.4,
+      failureProbabilityPercent: 40, predictionHorizonMinutes: 15, signals: [], elevatedRisk: false },
+  }],
+  elevatedRisks: [{
+    segment: { provider: 'Stripe' }, evidence: { sufficientEvidence: true }, features: {},
+    failureContext: {}, prediction: { riskLevel: 'HIGH', failureProbability: 0.8,
+      failureProbabilityPercent: 80, predictionHorizonMinutes: 15, signals: [], elevatedRisk: true },
+  }],
+};
+
+function setup(options: {
+  detection?: ReturnType<typeof vi.fn>;
+  prediction?: ReturnType<typeof vi.fn>;
+  ready?: boolean;
+} = {}) {
   const generator = {
     reset: vi.fn(),
     generate: vi.fn().mockResolvedValue({ generated: 10, approved: 9, declined: 1, rows: [] }),
@@ -17,6 +37,7 @@ function setup(options: { detection?: ReturnType<typeof vi.fn>; ready?: boolean 
   const detection = options.detection ??
     vi.fn().mockResolvedValue({ runId: 'run-1', outcome: 'NO_ANOMALY', incidents: [] });
   const events = new LiveEventService();
+  const prediction = options.prediction ?? vi.fn().mockResolvedValue(scanResult);
   const eventSpy = vi.spyOn(events, 'emit');
   const service = new LiveMonitoringService(
     { get: vi.fn(() => undefined) } as unknown as ConfigService,
@@ -27,10 +48,11 @@ function setup(options: { detection?: ReturnType<typeof vi.fn>; ready?: boolean 
     } as unknown as BaselinesService,
     { seed: vi.fn() } as unknown as DemoService,
     { run: detection } as unknown as DetectionService,
+    { scan: prediction } as unknown as PredictionService,
     generator as unknown as LiveTransactionGeneratorService,
     events,
   );
-  return { service, generator, detection, events, eventSpy };
+  return { service, generator, detection, prediction, events, eventSpy };
 }
 
 describe('LiveMonitoringService', () => {
@@ -190,6 +212,98 @@ describe('LiveMonitoringService', () => {
     service.stop();
     expect(eventSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'monitor_started' }));
     expect(eventSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'monitor_stopped' }));
+  });
+
+  it('clears runtime degradations on stop', async () => {
+    const { service } = setup();
+    await service.start({});
+    service.addDegradation({ dimensions: { provider: 'Adyen' }, approvalRate: 0.2 });
+    expect(service.status().activeDegradationCount).toBe(1);
+    const stopped = await service.stop();
+    expect(stopped).toMatchObject({ state: 'STOPPED', activeDegradationCount: 0 });
+  });
+
+  it('schedules and runs automatic prediction when enabled', async () => {
+    const { service, prediction } = setup();
+    await service.start({ predictionEnabled: true, predictionIntervalMs: 1_000 });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(prediction).toHaveBeenCalledTimes(1);
+    expect(service.status().prediction.runs).toBe(1);
+    await service.stop();
+  });
+
+  it('does not schedule prediction when explicitly disabled', async () => {
+    const { service, prediction } = setup();
+    await service.start({ predictionEnabled: false, predictionIntervalMs: 1_000 });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(prediction).not.toHaveBeenCalled();
+    await service.stop();
+  });
+
+  it('skips overlapping prediction scans', async () => {
+    let resolvePrediction!: (value: unknown) => void;
+    const prediction = vi.fn(() => new Promise((resolve) => { resolvePrediction = resolve; }));
+    const { service } = setup({ prediction });
+    await service.start({ predictionIntervalMs: 1_000 });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(prediction).toHaveBeenCalledTimes(1);
+    expect(service.status().prediction.skippedRuns).toBe(1);
+    resolvePrediction(scanResult);
+    await Promise.resolve();
+    await service.stop();
+  });
+
+  it('isolates prediction failures from generation and Detection', async () => {
+    const prediction = vi.fn().mockRejectedValue(new Error('model unavailable'));
+    const { service, generator, detection } = setup({ prediction });
+    await service.start({ tickIntervalMs: 250, detectionIntervalMs: 1_000, predictionIntervalMs: 1_000 });
+    await vi.advanceTimersByTimeAsync(1_250);
+    expect(generator.generate).toHaveBeenCalled();
+    expect(detection).toHaveBeenCalled();
+    expect(service.status()).toMatchObject({ state: 'RUNNING', prediction: { lastError: 'model unavailable' } });
+    await service.stop();
+  });
+
+  it('exposes bounded predictive risks ordered HIGH before WATCH', async () => {
+    const { service } = setup();
+    await service.start({ predictionIntervalMs: 1_000 });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(service.status().latestPredictiveRisks).toHaveLength(2);
+    expect(service.status().latestPredictiveRisks.map((risk) => risk.riskLevel)).toEqual(['HIGH', 'WATCH']);
+    await service.stop();
+  });
+
+  it('emits aggregate prediction and predictive-risk events', async () => {
+    const { service, eventSpy } = setup();
+    await service.start({ predictionIntervalMs: 1_000 });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(eventSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'prediction_started' }));
+    expect(eventSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'prediction_completed', evaluatedSegments: 2 }));
+    expect(eventSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'predictive_risk_detected' }));
+    await service.stop();
+  });
+
+  it('does not create incidents or trigger Detection from a prediction scan', async () => {
+    const { service, detection } = setup();
+    await service.start({ detectionIntervalMs: 5_000, predictionIntervalMs: 1_000 });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(detection).not.toHaveBeenCalled();
+    expect(service.status().prediction.runs).toBe(1);
+    await service.stop();
+  });
+
+  it('waits for an in-flight Prediction scan before returning STOPPED', async () => {
+    let resolvePrediction!: (value: unknown) => void;
+    const prediction = vi.fn(() => new Promise((resolve) => { resolvePrediction = resolve; }));
+    const { service } = setup({ prediction });
+    await service.start({ predictionIntervalMs: 1_000 });
+    await vi.advanceTimersByTimeAsync(1_000);
+    let stopped = false;
+    const stopping = service.stop().then((status) => { stopped = true; return status; });
+    await Promise.resolve();
+    expect(stopped).toBe(false);
+    resolvePrediction(scanResult);
+    expect(await stopping).toMatchObject({ state: 'STOPPED', prediction: { running: false } });
   });
 
   it('multicasts monitor and degradation events over SSE without history storage', async () => {

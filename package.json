@@ -21,6 +21,8 @@
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
     "demo:regression": "node scripts/demo-regression.mjs",
     "demo:live": "node scripts/live-regression.mjs",
+    "demo:p3": "node scripts/p3-regression.mjs",
+    "demo:final": "node scripts/final-demo-regression.mjs",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",

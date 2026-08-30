@@ -66,6 +66,18 @@ export interface PredictionResult {
 }
 
 export interface SegmentPredictionResult {
+  /** Contexto temporal local de la ruta. Nuevo en V2. */
+  temporal?: unknown;
+
+  /** Vector V2 tal como entro al modelo. Nuevo en V2. */
+  featureVectorV2?: Record<string, number> | null;
+
+  /** Contexto de fallo con semantica Yuno. Nuevo en V2. */
+  yunoFailureContext?: unknown;
+
+  /** Que baseline uso Prediction. Nuevo en V2. */
+  baselineMode?: string;
+
   status:
     | 'PREDICTION'
     | 'INSUFFICIENT_EVIDENCE';
@@ -147,6 +159,24 @@ export class PredictionService {
     this.validateArtifact();
   }
 
+  /**
+   * Puntua un vector completo de features V2.
+   *
+   * Es el camino que usa `evaluateSegment`: el extractor ya entrega el mapa
+   * con los nombres exactos del artefacto.
+   */
+  scoreVector(
+    input: Record<string, number>,
+  ): PredictionResult {
+    return this.score(input);
+  }
+
+  /**
+   * Endpoint de compatibilidad. El DTO solo transporta las senales de V1, asi
+   * que las features que falten se rellenan con la MEDIA del scaler: tras
+   * estandarizar valen 0 y no aportan al logit. Es un valor neutro explicito,
+   * no un cero disfrazado.
+   */
   evaluate(
     input: EvaluatePredictionDto,
   ): PredictionResult {
@@ -176,6 +206,23 @@ export class PredictionService {
         input.latencySlope,
     };
 
+    this.artifact.features.forEach(
+      (feature, index) => {
+        if (values[feature] === undefined) {
+          values[feature] =
+            this.artifact.scaler.mean[
+              index
+            ]!;
+        }
+      },
+    );
+
+    return this.score(values);
+  }
+
+  private score(
+    values: Record<string, number>,
+  ): PredictionResult {
     const standardized =
       this.artifact.features.map(
         (feature, index) => {
@@ -311,6 +358,9 @@ export class PredictionService {
       !extracted.evidence
         .sufficientEvidence
     ) {
+      // Poca muestra NO es riesgo. De madrugada el trafico baja de forma
+      // legitima; devolver INSUFFICIENT_EVIDENCE es preferible a inventar un
+      // HIGH por falta de datos.
       return {
         status:
           'INSUFFICIENT_EVIDENCE',
@@ -326,14 +376,34 @@ export class PredictionService {
         failureContext:
           extracted.failureContext,
 
+        temporal: extracted.temporal,
+
+        featureVectorV2: null,
+
+        yunoFailureContext:
+          extracted.yunoFailureContext,
+
+        baselineMode:
+          extracted.baselineMode,
+
         prediction: null,
       };
     }
 
-    const prediction =
-      this.evaluate(
-        extracted.modelInput,
+    // El artefacto V2 espera el vector completo; el V1 solo conoce las 8
+    // features antiguas. Se elige segun lo que declare el artefacto cargado.
+    const usesV2 =
+      this.artifact.features.includes(
+        'local_time_sin',
       );
+
+    const prediction = usesV2
+      ? this.scoreVector(
+          extracted.featureVectorV2,
+        )
+      : this.evaluate(
+          extracted.modelInput,
+        );
 
     return {
       status: 'PREDICTION',
@@ -349,6 +419,17 @@ export class PredictionService {
 
       failureContext:
         extracted.failureContext,
+
+      temporal: extracted.temporal,
+
+      featureVectorV2:
+        extracted.featureVectorV2,
+
+      yunoFailureContext:
+        extracted.yunoFailureContext,
+
+      baselineMode:
+        extracted.baselineMode,
 
       prediction,
     };
@@ -530,8 +611,27 @@ export class PredictionService {
         process.cwd(),
         'ml',
         'artifacts',
+        'failure_prediction_v2.json',
+      );
+
+    // V2 si existe; si no, se cae a V1 para no romper un despliegue que
+    // todavia no tenga el artefacto nuevo.
+    const fallbackPath =
+      resolve(
+        process.cwd(),
+        'ml',
+        'artifacts',
         'failure_prediction_v1.json',
       );
+
+    if (
+      !existsSync(modelPath) &&
+      existsSync(fallbackPath)
+    ) {
+      return JSON.parse(
+        readFileSync(fallbackPath, 'utf-8'),
+      ) as ModelArtifact;
+    }
 
     if (
       !existsSync(modelPath)

@@ -39,4 +39,16 @@ export class StartLiveMonitorDto {
   @Type(() => Boolean)
   @IsBoolean()
   autoSeed?: boolean = false;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  predictionEnabled?: boolean = true;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1_000)
+  @Max(300_000)
+  predictionIntervalMs?: number = 10_000;
 }

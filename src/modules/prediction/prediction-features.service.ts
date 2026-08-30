@@ -2,6 +2,18 @@ import {
   Injectable,
 } from '@nestjs/common';
 
+import { daypartOf, encodeLocalTime } from '../../common/local-time.js';
+import { resolveRouteTimeZone } from '../../common/route-timezone.js';
+import {
+  aggregateYunoBucket,
+  buildFeatureVectorV2,
+  type YunoTransactionRow,
+} from './feature-vector-v2.js';
+import {
+  buildYunoFailureContext,
+  type YunoFailureContext,
+} from './yuno-failure-context.js';
+
 import type {
   Dimension,
   DimensionMap,
@@ -81,6 +93,19 @@ export interface FailureContext {
   topReasons: FailureReasonSummary[];
 }
 
+export interface TemporalContext {
+  timeZone: string;
+  timeZoneSource: string;
+  timeZoneAmbiguous: boolean;
+  localHour: number;
+  localMinute: number;
+  daypart: string;
+  localTimeSin: number;
+  localTimeCos: number;
+  /** true si la zona no se pudo resolver y se uso UTC. */
+  fallbackToUtc: boolean;
+}
+
 export interface ExtractedFeatures {
   segment: DimensionMap;
 
@@ -101,6 +126,21 @@ export interface ExtractedFeatures {
   evidence: FeatureEvidence;
 
   failureContext: FailureContext;
+
+  /** Contexto temporal local de la ruta evaluada. */
+  temporal: TemporalContext;
+
+  /** Vector V2 en el orden exacto del artefacto. */
+  featureVectorV2: Record<string, number>;
+
+  /** Contexto de fallo con semantica Yuno (distribuciones, MAC, dominios). */
+  yunoFailureContext: YunoFailureContext;
+
+  /**
+   * Baseline usado por Prediction. Es COMPARABLE POR HORA LOCAL, no el
+   * promedio de 24 h: ver el comentario en `extract()`.
+   */
+  baselineMode: 'LOCAL_HOUR_COMPARABLE' | 'GLOBAL_24H';
 }
 
 interface BucketMetrics {
@@ -112,6 +152,9 @@ interface BucketMetrics {
 
   p95LatencyMs: number;
 }
+
+const BASELINE_DAYS = 7;
+const BASELINE_LOCAL_HOUR_TOLERANCE_MINUTES = 60;
 
 @Injectable()
 export class PredictionFeaturesService {
@@ -453,7 +496,110 @@ export class PredictionFeaturesService {
         recentTransactions,
     );
 
+    /*
+     * --- Contexto temporal ---
+     * El ancla es el FINAL de la ventana observada, no "ahora" del servidor,
+     * para que entrenamiento y runtime signifiquen lo mismo.
+     */
+    const timeZoneResolution =
+      resolveRouteTimeZone({
+        country: dto.country,
+      });
+
+    const encoded = encodeLocalTime(
+      now,
+      timeZoneResolution.timeZone,
+    );
+
+    const temporal: TemporalContext = {
+      timeZone: timeZoneResolution.timeZone,
+      timeZoneSource: timeZoneResolution.source,
+      timeZoneAmbiguous: timeZoneResolution.ambiguous,
+      localHour: encoded.localHour,
+      localMinute: encoded.localMinute,
+      daypart: daypartOf(encoded.localHour),
+      localTimeSin: encoded.localTimeSin,
+      localTimeCos: encoded.localTimeCos,
+      fallbackToUtc: encoded.fallbackToUtc,
+    };
+
+    /*
+     * --- Baseline COMPARABLE POR HORA LOCAL ---
+     *
+     * Prediction usa un baseline distinto al del modulo Baselines, y es a
+     * proposito. Con el promedio plano de 24 h, una ruta cuya aprobacion
+     * nocturna es legitimamente menor parece degradada a las 02:00. Medido
+     * sobre el dataset sintetico, ese baseline global producia 7,75 pp mas de
+     * falsos positivos de noche que de dia.
+     *
+     * Aqui se compara la ventana actual contra las mismas horas locales de los
+     * ultimos dias. Detection y Baselines NO cambian: siguen con su baseline
+     * segmentado por hora y dia de semana.
+     */
+    const comparable = await this.baselineForLocalHour(
+      now,
+      where,
+    );
+
+    const baselineApprovalRateLocal =
+      comparable.attempts > 0
+        ? approvalRate(
+            comparable.approved,
+            comparable.attempts,
+          )
+        : approvalRate(
+            baselineTotals.approved,
+            baselineTotals.attempts,
+          );
+
+    const yunoBuckets = [];
+    for (
+      let index = 0;
+      index < BUCKET_COUNT;
+      index++
+    ) {
+      const from = new Date(
+        recentStart.getTime() +
+          index * BUCKET_MINUTES * 60_000,
+      );
+      const to = new Date(
+        from.getTime() +
+          BUCKET_MINUTES * 60_000,
+      );
+      yunoBuckets.push(
+        aggregateYunoBucket(
+          recentTransactions.filter(
+            (transaction) =>
+              transaction.occurredAt >= from &&
+              transaction.occurredAt < to,
+          ) as unknown as YunoTransactionRow[],
+        ),
+      );
+    }
+
+    const featureVectorV2 =
+      buildFeatureVectorV2({
+        buckets: yunoBuckets,
+        baselineApprovalRate:
+          baselineApprovalRateLocal,
+        anchor: now,
+        timeZone: timeZoneResolution.timeZone,
+      });
+
+    const yunoFailureContext =
+      buildYunoFailureContext(
+        recentTransactions as unknown as YunoTransactionRow[],
+      );
+
     return {
+      temporal,
+      featureVectorV2,
+      yunoFailureContext,
+      baselineMode:
+        comparable.attempts > 0
+          ? 'LOCAL_HOUR_COMPARABLE'
+          : 'GLOBAL_24H',
+
       segment,
 
       window: {
@@ -554,6 +700,58 @@ export class PredictionFeaturesService {
           0.95,
         ) ?? 0,
     };
+  }
+
+  /**
+   * Suma los mismos minutos locales de los ultimos dias.
+   *
+   * Se hace con N consultas acotadas en vez de traer una semana entera de
+   * transacciones: mismo resultado, coste predecible.
+   */
+  private async baselineForLocalHour(
+    anchor: Date,
+    where: Record<string, unknown>,
+  ): Promise<{
+    attempts: number;
+    approved: number;
+  }> {
+    let attempts = 0;
+    let approved = 0;
+
+    for (
+      let day = 1;
+      day <= BASELINE_DAYS;
+      day++
+    ) {
+      const center = new Date(
+        anchor.getTime() -
+          day * 24 * 60 * 60_000,
+      );
+
+      const from = new Date(
+        center.getTime() -
+          BASELINE_LOCAL_HOUR_TOLERANCE_MINUTES *
+            60_000,
+      );
+
+      const to = new Date(
+        center.getTime() +
+          BASELINE_LOCAL_HOUR_TOLERANCE_MINUTES *
+            60_000,
+      );
+
+      const totals =
+        await this.transactions.totals(
+          from,
+          to,
+          where as never,
+        );
+
+      attempts += totals.attempts;
+      approved += totals.approved;
+    }
+
+    return { attempts, approved };
   }
 
   private evaluateEvidence(

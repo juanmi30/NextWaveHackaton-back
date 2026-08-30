@@ -22,7 +22,9 @@ export class BaselinesRepository {
     if (rows.length === 0) return 0;
 
     let written = 0;
-    const chunkSize = 500;
+    // createMany soporta lotes mayores y reduce fuertemente los round-trips
+    // contra PostgreSQL remoto durante el seed de demo.
+    const chunkSize = 2_000;
     for (let i = 0; i < rows.length; i += chunkSize) {
       const result = await this.prisma.baseline.createMany({
         data: rows.slice(i, i + chunkSize).map((row) => ({ ...row, calculatedAt: new Date() })),

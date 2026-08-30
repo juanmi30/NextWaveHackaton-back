@@ -20,7 +20,6 @@ import {
   topDeclineReasons,
   type DeclineReasonRow,
 } from '../../common/detection-metrics.js';
-import { AlertsService } from '../alerts/alerts.service.js';
 import { BaselinesService, type BaselineLookup } from '../baselines/baselines.service.js';
 import { IncidentsRepository } from '../incidents/incidents.repository.js';
 import { TransactionsRepository, type SliceCount } from '../transactions/transactions.repository.js';
@@ -232,10 +231,22 @@ export class DetectionService {
     // 3. Quedarse con la explicacion mas especifica de cada familia.
     const families = groupAnomalyFamilies(candidates);
     const winners = families.map(selectCanonicalWinner);
-    const winnerAnchors = winners.map((winner, index) => ({
-      winner,
-      anchor: stableFamilyAnchor(families[index]!, winner),
-    }));
+    const activeIncidentLineages = await this.incidents.findActiveWithLatestDiagnosis();
+    const winnerAnchors = winners.map((winner, index) => {
+      const family = families[index]!;
+      const proposedAnchor = stableFamilyAnchor(family, winner);
+      const existing = resolveExistingIncident({
+        proposedAnchor,
+        winner,
+        family,
+        activeIncidents: activeIncidentLineages,
+      });
+      return {
+        winner,
+        family,
+        anchor: existing?.anchorFingerprint ?? proposedAnchor,
+      };
+    });
     const recentRunCutoff = new Date(
       now.getTime() - Math.max(5, windowMinutes * 2) * 60_000,
     );
@@ -262,12 +273,14 @@ export class DetectionService {
 
     // 4. Persistir: upsert por anclaje, nueva version de diagnostico.
     const results = [];
-    for (const { winner, anchor } of confirmed) {
+    for (const { winner, family, anchor } of confirmed) {
       results.push(
         await this.persist(
           run.id,
           winner,
           anchor,
+          family,
+          activeIncidentLineages,
           evaluatedCandidates,
           baselineStart,
           windowStart,
@@ -298,11 +311,12 @@ export class DetectionService {
       recoveryRuns,
       candidateAnchors: winnerAnchors.map(({ anchor }) => anchor),
     };
+    const durationMs = Date.now() - startedAt;
     await this.runs.finishRun(
       run.id,
       outcome,
       combosEvaluated,
-      Date.now() - startedAt,
+      durationMs,
       runParams as never,
     );
 
@@ -335,6 +349,7 @@ export class DetectionService {
 
     return {
       runId: run.id,
+      durationMs,
       outcome,
       window: { from: windowStart, to: now, minutes: windowMinutes },
       combosEvaluated,
@@ -356,13 +371,20 @@ export class DetectionService {
     runId: string,
     winner: Candidate,
     anchorFingerprint: string,
+    family: Candidate[],
+    activeIncidentLineages: ActiveIncidentLineage[],
     allCandidates: Candidate[],
     baselineStart: Date,
     windowStart: Date,
     now: Date,
   ) {
     const fingerprint = winner.segmentKey;
-    const existing = await this.incidents.findOpenByAnchor(anchorFingerprint);
+    const existing = resolveExistingIncident({
+      proposedAnchor: anchorFingerprint,
+      winner,
+      family,
+      activeIncidents: activeIncidentLineages,
+    });
     const [samples, currentDeclines, baselineDeclines] = await Promise.all([
       this.transactions.sampleIds(winner.dimensions, windowStart, now),
       this.transactions.aggregateDeclineReasons(winner.dimensions, windowStart, now),
@@ -441,14 +463,19 @@ export class DetectionService {
       // Abre la cadena de escalamiento. Solo para incidentes nuevos: un
       // diagnostico refinado sobre el mismo incidente no reinicia los relojes.
       const routingFingerprint = alertRoutingFingerprint(fingerprint, declineReasons);
-      await this.escalation.openForIncident({
-        id: incidentId,
-        anchorFingerprint,
-        startedAt,
-        detectedAt: now,
-        ...metrics,
-        fingerprint: routingFingerprint,
-      });
+      await bestEffort(
+        () => this.escalation.openForIncident({
+          id: incidentId,
+          anchorFingerprint,
+          startedAt,
+          detectedAt: now,
+          ...metrics,
+          fingerprint: routingFingerprint,
+        }),
+        (error) => this.logger.warn(
+          `Incident ${incidentId} persisted but escalation could not be opened: ${safeError(error)}`,
+        ),
+      );
     }
 
     return {
@@ -458,7 +485,9 @@ export class DetectionService {
       isNew: persistence.isNew,
       refined: persistence.refined,
       fingerprint,
-      anchorFingerprint,
+      // El anchor pertenece a la historia y es inmutable; el fingerprint
+      // representa solamente la version vigente del diagnostico.
+      anchorFingerprint: existing?.anchorFingerprint ?? anchorFingerprint,
       priorityScore: winner.priorityScore,
       baselineSource: winner.baseline.source,
       baselineSampleSize: winner.baseline.sampleSize,
@@ -650,13 +679,91 @@ export function anchorFor(winner: Candidate, _all: Candidate[], _winners: Candid
 
 export function stableFamilyAnchor(family: Candidate[], winner: Candidate) {
   const isolatedDimension = winner.isolatedUnseenDimension;
-  if (!isolatedDimension) return winner.segmentKey;
+  if (!isolatedDimension) {
+    const ancestors = family.filter(
+      (candidate) =>
+        candidate !== winner &&
+        candidate.depth >= 2 &&
+        isRefinementOf(winner.dimensions, candidate.dimensions),
+    );
+    return ancestors.length > 0
+      ? [...ancestors].sort(
+          (left, right) =>
+            right.depth - left.depth ||
+            right.confidence - left.confidence ||
+            left.segmentKey.localeCompare(right.segmentKey),
+        )[0]!.segmentKey
+      : winner.segmentKey;
+  }
   const parentProjections = family.filter(
     (candidate) => candidate.dimensions[isolatedDimension] === undefined,
   );
   return parentProjections.length > 0
     ? selectCanonicalWinner(parentProjections).segmentKey
     : winner.baseline.matchedSegmentKey ?? winner.segmentKey;
+}
+
+export type ActiveIncidentLineage = {
+  id: string;
+  anchorFingerprint: string;
+  fingerprint: string;
+  startedAt: Date;
+  diagnoses: Array<{ dimensions: unknown }>;
+};
+
+export function resolveExistingIncident(input: {
+  proposedAnchor: string;
+  winner: Candidate;
+  family: Candidate[];
+  activeIncidents: ActiveIncidentLineage[];
+}): ActiveIncidentLineage | null {
+  const exact = input.activeIncidents.filter(
+    (incident) => incident.anchorFingerprint === input.proposedAnchor,
+  );
+  if (exact.length === 1) return exact[0]!;
+  if (exact.length > 1) return null;
+
+  const currentDimensions = [input.winner, ...input.family].map((candidate) => candidate.dimensions);
+  const compatible = input.activeIncidents.filter((incident) => {
+    const previousDimensions = [
+      dimensionsFromUnknown(incident.diagnoses[0]?.dimensions),
+      dimensionsFromSegmentKey(incident.fingerprint),
+      dimensionsFromSegmentKey(incident.anchorFingerprint),
+    ].filter(
+      (dimensions) =>
+        // Un ancla de una sola dimension sirve como exact match, pero es
+        // demasiado general para reasignar lineage entre corridas.
+        Object.keys(dimensions).length >= 2,
+    );
+    return previousDimensions.some((previous) =>
+      currentDimensions.some(
+        (current) =>
+          isRefinementOf(current, previous) || isRefinementOf(previous, current),
+      ),
+    );
+  });
+  return compatible.length === 1 ? compatible[0]! : null;
+}
+
+function dimensionsFromUnknown(value: unknown): DimensionMap {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [Dimension, string] =>
+        DIMENSIONS.includes(entry[0] as Dimension) && typeof entry[1] === 'string',
+    ),
+  );
+}
+
+function dimensionsFromSegmentKey(segmentKey: string): DimensionMap {
+  return dimensionsFromUnknown(
+    Object.fromEntries(
+      segmentKey.split('|').map((part) => {
+        const separator = part.indexOf('=');
+        return separator < 1 ? ['', ''] : [part.slice(0, separator), part.slice(separator + 1)];
+      }),
+    ),
+  );
 }
 
 export function sameCandidateFamily(a: Candidate, b: Candidate, all: Candidate[]): boolean {
@@ -810,7 +917,50 @@ export function buildEvidenceRows(
         isRootCause: true,
       }]
     : [];
-  return [direct, ...unseen, ...affected, ...controls, ...declines].slice(0, 8);
+  return deduplicateEvidence([direct, ...unseen, ...affected, ...controls, ...declines]).slice(0, 8);
+}
+
+function deduplicateEvidence<T extends {
+  dimension: string;
+  dimensionValue: string;
+  isRootCause: boolean;
+  confidence: number;
+  attempts: number;
+  difference: number;
+}>(rows: T[]): T[] {
+  const strongest = new Map<string, T>();
+  for (const row of rows) {
+    const key = `${row.dimension}\u0000${row.dimensionValue}\u0000${row.isRootCause}`;
+    const current = strongest.get(key);
+    if (
+      !current ||
+      row.confidence > current.confidence ||
+      (row.confidence === current.confidence && row.attempts > current.attempts) ||
+      (row.confidence === current.confidence &&
+        row.attempts === current.attempts &&
+        Math.abs(row.difference) > Math.abs(current.difference))
+    ) {
+      strongest.set(key, row);
+    }
+  }
+  return [...strongest.values()];
+}
+
+function safeError(error: unknown) {
+  return error instanceof Error ? error.message : 'Unknown error';
+}
+
+export async function bestEffort(
+  action: () => Promise<unknown>,
+  onError: (error: unknown) => void,
+) {
+  try {
+    await action();
+    return true;
+  } catch (error) {
+    onError(error);
+    return false;
+  }
 }
 
 function isRelevantSibling(winner: DimensionMap, candidate: DimensionMap) {
